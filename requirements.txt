@@ -1,0 +1,15 @@
+# Core dependencies
+# Note: tkinter and sqlite3 are bundled with Python
+
+# For future use: database enhancements
+# sqlalchemy (for more complex ORM if needed)
+
+# For future use: reporting and calculations
+# openpyxl (for Excel exports)
+# reportlab (for PDF generation)
+
+# For future use: utilities
+# python-dateutil (for advanced date handling)
+
+# Development and packaging
+pyinstaller>=6.0.0
