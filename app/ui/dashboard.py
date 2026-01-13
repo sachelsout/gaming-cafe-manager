@@ -25,6 +25,9 @@ class Dashboard:
         self.system_service = SystemService(db)
         self.session_service = SessionService(db)
         
+        # Timer state
+        self.timer_id = None
+        
         # Create main container
         self.container = ttk.Frame(parent)
         self.container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -36,6 +39,9 @@ class Dashboard:
         # Store references for updates
         self.system_frames = {}
         self.refresh()
+        
+        # Start timer for updating elapsed times
+        self._schedule_timer_update()
     
     def _create_header(self):
         """Create dashboard header with title and action buttons."""
@@ -204,15 +210,14 @@ class Dashboard:
             self.sessions_tree.insert("", "end", values=("", "No active sessions", "", "", ""))
             return
         
-        # Add sessions to treeview
+        # Add sessions to treeview with live elapsed times
+        from app.utils.time_utils import calculate_elapsed_seconds, format_duration_with_seconds
+        
         for session in sessions:
-            # Calculate current duration
-            from datetime import datetime
+            # Calculate current elapsed time (in seconds)
             try:
-                login = datetime.strptime(session.login_time, "%H:%M:%S")
-                now = datetime.now().replace(second=0, microsecond=0)
-                duration = now - login.replace(year=now.year, month=now.month, day=now.day)
-                duration_str = f"{int(duration.total_seconds() // 60)} min"
+                elapsed_seconds = calculate_elapsed_seconds(session.login_time)
+                duration_str = format_duration_with_seconds(elapsed_seconds)
             except:
                 duration_str = "N/A"
             
@@ -254,3 +259,47 @@ class Dashboard:
         """Show end session dialog."""
         from app.ui.dialogs.end_session_dialog import EndSessionDialog
         EndSessionDialog(self.parent, self.db, session_id, on_success=self.refresh)
+    
+    def _schedule_timer_update(self):
+        """Schedule periodic updates of elapsed times for active sessions."""
+        # Update every 1 second (1000ms) for real-time display with seconds
+        self._update_elapsed_times()
+        self.timer_id = self.parent.after(1000, self._schedule_timer_update)
+    
+    def _update_elapsed_times(self):
+        """Update elapsed times in the sessions treeview without full refresh."""
+        from app.utils.time_utils import calculate_elapsed_seconds, format_duration_with_seconds
+        
+        # Get current items in treeview
+        items = self.sessions_tree.get_children()
+        if not items:
+            return
+        
+        # Fetch active sessions
+        sessions = self.session_service.get_active_sessions()
+        if not sessions:
+            return
+        
+        # Update each item's duration
+        for i, item in enumerate(items):
+            if i < len(sessions):
+                session = sessions[i]
+                try:
+                    elapsed_seconds = calculate_elapsed_seconds(session.login_time)
+                    duration_str = format_duration_with_seconds(elapsed_seconds)
+                    
+                    # Get current values
+                    values = list(self.sessions_tree.item(item)["values"])
+                    # Update duration (column index 2)
+                    values[2] = duration_str
+                    
+                    # Update the row
+                    self.sessions_tree.item(item, values=values)
+                except Exception:
+                    pass  # Skip on error, next full refresh will handle it
+    
+    def stop_timer(self):
+        """Stop the timer when closing the dashboard."""
+        if self.timer_id:
+            self.parent.after_cancel(self.timer_id)
+            self.timer_id = None
