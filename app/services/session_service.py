@@ -74,7 +74,9 @@ class SessionService:
         self,
         session_id: int,
         logout_time: str,
-        extra_charges: float = 0.0
+        extra_charges: float = 0.0,
+        payment_status: str = "Pending",
+        notes: str = ""
     ) -> bool:
         """
         End a gaming session and calculate totals.
@@ -83,10 +85,20 @@ class SessionService:
             session_id: ID of session to end
             logout_time: Logout time (HH:MM:SS)
             extra_charges: Optional extra charges
+            payment_status: Payment method ('Paid-Cash', 'Paid-Online', 'Paid-Mixed', or 'Pending')
+            notes: Optional notes (booking, payment split, etc.)
         
         Returns:
             True if successful, False otherwise
+        
+        Raises:
+            ValueError: If payment_status is invalid
         """
+        # Validate payment_status
+        valid_statuses = ["Paid-Cash", "Paid-Online", "Paid-Mixed", "Pending"]
+        if payment_status not in valid_statuses:
+            raise ValueError(f"Invalid payment status: {payment_status}")
+        
         # Fetch session to calculate duration
         session = self.get_session_by_id(session_id)
         if not session:
@@ -110,12 +122,13 @@ class SessionService:
         hours = duration_minutes / 60
         total_due = (session.hourly_rate * hours) + extra_charges
         
-        # Update session
+        # Update session with payment info
         rows_affected = self.db.update(
             """UPDATE sessions 
-               SET logout_time = ?, duration_minutes = ?, extra_charges = ?, total_due = ?, updated_at = CURRENT_TIMESTAMP
+               SET logout_time = ?, duration_minutes = ?, extra_charges = ?, total_due = ?, 
+                   payment_status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
                WHERE id = ?""",
-            (logout_time, duration_minutes, extra_charges, total_due, session_id)
+            (logout_time, duration_minutes, extra_charges, total_due, payment_status, notes, session_id)
         )
         return rows_affected > 0
     

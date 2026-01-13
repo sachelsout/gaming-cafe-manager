@@ -40,7 +40,7 @@ class EndSessionDialog:
         # Create dialog window
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f"End Session - {self.session.customer_name}")
-        self.dialog.geometry("450x500")
+        self.dialog.geometry("500x650")
         self.dialog.resizable(False, False)
         self.dialog.configure(bg=COLORS["bg_dark"])
         
@@ -50,14 +50,16 @@ class EndSessionDialog:
         
         # Center dialog on parent
         self.dialog.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() // 2) - (450 // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (500 // 2)
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (500 // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (650 // 2)
         self.dialog.geometry(f"+{x}+{y}")
         
         # State variables
         self.logout_time_var = tk.StringVar(value=get_current_time_string())
         self.extra_charges_var = tk.StringVar(value="0.0")
         self.rate_var = tk.StringVar(value=str(self.session.hourly_rate))
+        self.payment_method_var = tk.StringVar(value="Paid-Cash")
+        self.notes_var = tk.StringVar()
         
         # Build UI
         self._create_ui()
@@ -152,12 +154,51 @@ class EndSessionDialog:
         )
         self.total_display.grid(row=10, column=1, sticky=tk.EW, pady=(10, 0))
         
+        # Payment section
+        payment_label = ttk.Label(container, text="Payment Information", style="Heading.TLabel")
+        payment_label.grid(row=11, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
+        
+        # Payment method
+        method_label = ttk.Label(container, text="Payment Method *", style="Heading.TLabel")
+        method_label.grid(row=12, column=0, sticky=tk.W, pady=(0, 5))
+        
+        method_combo = ttk.Combobox(
+            container,
+            textvariable=self.payment_method_var,
+            values=["Paid-Cash", "Paid-Online", "Paid-Mixed"],
+            state="readonly",
+            width=27
+        )
+        method_combo.grid(row=12, column=1, sticky=tk.EW, pady=(0, 5))
+        
+        # Notes
+        notes_label = ttk.Label(container, text="Notes (Booking, Payment Split, etc.)", style="Heading.TLabel")
+        notes_label.grid(row=13, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
+        
+        notes_text = tk.Text(
+            container,
+            height=4,
+            bg=COLORS["bg_card"],
+            fg=COLORS["text_primary"],
+            insertbackground=COLORS["text_primary"],
+            relief=tk.FLAT,
+            bd=1
+        )
+        notes_text.grid(row=14, column=0, columnspan=2, sticky=tk.EW, pady=(0, 10))
+        
+        # Bind text widget to variable
+        def update_notes(event=None):
+            self.notes_var.set(notes_text.get("1.0", tk.END).strip())
+        
+        notes_text.bind("<KeyRelease>", update_notes)
+        self.notes_text = notes_text  # Store reference for later
+        
         # Configure grid
         container.grid_columnconfigure(1, weight=1)
         
         # Button frame
         button_frame = ttk.Frame(container)
-        button_frame.grid(row=11, column=0, columnspan=2, sticky=tk.EW, pady=(20, 0))
+        button_frame.grid(row=15, column=0, columnspan=2, sticky=tk.EW, pady=(10, 0))
         
         end_btn = ttk.Button(button_frame, text="End Session & Save", command=self._end_session)
         end_btn.pack(side=tk.RIGHT, padx=(5, 0))
@@ -250,11 +291,17 @@ class EndSessionDialog:
                     (hourly_rate, self.session_id)
                 )
             
-            # End the session (calculates duration and total)
+            # Get payment method and notes
+            payment_status = self.payment_method_var.get()
+            notes = self.notes_var.get()
+            
+            # End the session (calculates duration and total, saves payment info)
             success = self.session_service.end_session(
                 self.session_id,
                 logout_time,
-                extra_charges
+                extra_charges,
+                payment_status,
+                notes
             )
             
             if not success:
@@ -272,7 +319,8 @@ class EndSessionDialog:
                 f"Duration: {format_duration(duration_minutes)}\n"
                 f"Base: {calculate_bill(duration_minutes, hourly_rate, 0.0):.2f}\n"
                 f"Extra: {extra_charges:.2f}\n"
-                f"Total: {total:.2f}"
+                f"Total: {total:.2f}\n"
+                f"Payment: {payment_status}"
             )
             
             # Call success callback

@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     hourly_rate REAL NOT NULL,
     extra_charges REAL DEFAULT 0.0,
     total_due REAL,
-    payment_status TEXT CHECK(payment_status IN ('Paid-Cash', 'Paid-Online', 'Pending')),
+    payment_status TEXT CHECK(payment_status IN ('Paid-Cash', 'Paid-Online', 'Paid-Mixed', 'Pending')),
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
