@@ -104,6 +104,9 @@ class Dashboard:
         scrollbar = ttk.Scrollbar(self.sessions_frame, orient=tk.VERTICAL, command=self.sessions_tree.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.sessions_tree.configure(yscroll=scrollbar.set)
+        
+        # Bind double-click to end session
+        self.sessions_tree.bind("<Double-1>", self._on_session_double_click)
     
     def refresh(self):
         """Refresh dashboard with latest data."""
@@ -229,3 +232,25 @@ class Dashboard:
         """Show start session dialog."""
         from app.ui.dialogs.start_session_dialog import StartSessionDialog
         StartSessionDialog(self.parent, self.db, on_success=self.refresh)
+    
+    def _on_session_double_click(self, event):
+        """Handle double-click on session to end it."""
+        selected = self.sessions_tree.selection()
+        if not selected:
+            return
+        
+        # Get the selected session's index
+        item = selected[0]
+        values = self.sessions_tree.item(item)["values"]
+        
+        # Find the session by system and customer name
+        sessions = self.session_service.get_active_sessions()
+        for session in sessions:
+            if session.system_name == values[0] and session.customer_name == values[1]:
+                self._show_end_session_dialog(session.id)
+                break
+    
+    def _show_end_session_dialog(self, session_id: int):
+        """Show end session dialog."""
+        from app.ui.dialogs.end_session_dialog import EndSessionDialog
+        EndSessionDialog(self.parent, self.db, session_id, on_success=self.refresh)
