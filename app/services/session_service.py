@@ -211,6 +211,142 @@ class SessionService:
         )
         return [self._row_to_session(row) for row in rows]
     
+    def get_completed_sessions(self, start_date: str = None, end_date: str = None) -> List[Session]:
+        """
+        Get completed sessions (with logout_time) within optional date range.
+        
+        Args:
+            start_date: Optional start date (YYYY-MM-DD)
+            end_date: Optional end date (YYYY-MM-DD)
+        
+        Returns:
+            List of Session objects with logout_time (completed sessions)
+        """
+        if start_date and end_date:
+            rows = self.db.fetch_all(
+                """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+                          s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
+                          s.extra_charges, s.total_due, s.payment_status, s.notes
+                   FROM sessions s
+                   JOIN systems sy ON s.system_id = sy.id
+                   WHERE s.logout_time IS NOT NULL
+                   AND s.date >= ? AND s.date <= ?
+                   ORDER BY s.date DESC, s.login_time DESC""",
+                (start_date, end_date)
+            )
+        elif start_date:
+            rows = self.db.fetch_all(
+                """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+                          s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
+                          s.extra_charges, s.total_due, s.payment_status, s.notes
+                   FROM sessions s
+                   JOIN systems sy ON s.system_id = sy.id
+                   WHERE s.logout_time IS NOT NULL
+                   AND s.date >= ?
+                   ORDER BY s.date DESC, s.login_time DESC""",
+                (start_date,)
+            )
+        else:
+            rows = self.db.fetch_all(
+                """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+                          s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
+                          s.extra_charges, s.total_due, s.payment_status, s.notes
+                   FROM sessions s
+                   JOIN systems sy ON s.system_id = sy.id
+                   WHERE s.logout_time IS NOT NULL
+                   ORDER BY s.date DESC, s.login_time DESC"""
+            )
+        return [self._row_to_session(row) for row in rows]
+    
+    def get_daily_revenue(self, date: str) -> dict:
+        """
+        Calculate daily revenue summary for a specific date.
+        
+        Args:
+            date: Date in YYYY-MM-DD format
+        
+        Returns:
+            Dictionary with:
+            - total_revenue: Total amount collected for the day
+            - session_count: Number of sessions completed
+            - cash_total: Total from cash payments
+            - online_total: Total from online payments
+            - mixed_total: Total from mixed payments
+            - pending_total: Total from pending payments
+        """
+        rows = self.db.fetch_all(
+            """SELECT COALESCE(SUM(CASE WHEN payment_status = 'Paid-Cash' THEN total_due ELSE 0 END), 0) as cash_total,
+                      COALESCE(SUM(CASE WHEN payment_status = 'Paid-Online' THEN total_due ELSE 0 END), 0) as online_total,
+                      COALESCE(SUM(CASE WHEN payment_status = 'Paid-Mixed' THEN total_due ELSE 0 END), 0) as mixed_total,
+                      COALESCE(SUM(CASE WHEN payment_status = 'Pending' THEN total_due ELSE 0 END), 0) as pending_total,
+                      COUNT(*) as session_count,
+                      COALESCE(SUM(CASE WHEN payment_status IN ('Paid-Cash', 'Paid-Online', 'Paid-Mixed') THEN total_due ELSE 0 END), 0) as total_revenue
+               FROM sessions
+               WHERE date = ? AND logout_time IS NOT NULL""",
+            (date,)
+        )
+        
+        if rows and rows[0]:
+            row = rows[0]
+            return {
+                'total_revenue': row['total_revenue'] or 0.0,
+                'session_count': row['session_count'] or 0,
+                'cash_total': row['cash_total'] or 0.0,
+                'online_total': row['online_total'] or 0.0,
+                'mixed_total': row['mixed_total'] or 0.0,
+                'pending_total': row['pending_total'] or 0.0
+            }
+        return {
+            'total_revenue': 0.0,
+            'session_count': 0,
+            'cash_total': 0.0,
+            'online_total': 0.0,
+            'mixed_total': 0.0,
+            'pending_total': 0.0
+        }
+    
+    def get_date_range_revenue(self, start_date: str, end_date: str) -> dict:
+        """
+        Calculate revenue summary for a date range.
+        
+        Args:
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+        
+        Returns:
+            Dictionary with revenue breakdown by payment method and totals
+        """
+        rows = self.db.fetch_all(
+            """SELECT COALESCE(SUM(CASE WHEN payment_status = 'Paid-Cash' THEN total_due ELSE 0 END), 0) as cash_total,
+                      COALESCE(SUM(CASE WHEN payment_status = 'Paid-Online' THEN total_due ELSE 0 END), 0) as online_total,
+                      COALESCE(SUM(CASE WHEN payment_status = 'Paid-Mixed' THEN total_due ELSE 0 END), 0) as mixed_total,
+                      COALESCE(SUM(CASE WHEN payment_status = 'Pending' THEN total_due ELSE 0 END), 0) as pending_total,
+                      COUNT(*) as session_count,
+                      COALESCE(SUM(CASE WHEN payment_status IN ('Paid-Cash', 'Paid-Online', 'Paid-Mixed') THEN total_due ELSE 0 END), 0) as total_revenue
+               FROM sessions
+               WHERE date >= ? AND date <= ? AND logout_time IS NOT NULL""",
+            (start_date, end_date)
+        )
+        
+        if rows and rows[0]:
+            row = rows[0]
+            return {
+                'total_revenue': row['total_revenue'] or 0.0,
+                'session_count': row['session_count'] or 0,
+                'cash_total': row['cash_total'] or 0.0,
+                'online_total': row['online_total'] or 0.0,
+                'mixed_total': row['mixed_total'] or 0.0,
+                'pending_total': row['pending_total'] or 0.0
+            }
+        return {
+            'total_revenue': 0.0,
+            'session_count': 0,
+            'cash_total': 0.0,
+            'online_total': 0.0,
+            'mixed_total': 0.0,
+            'pending_total': 0.0
+        }
+    
     def update_payment_status(self, session_id: int, payment_status: str) -> bool:
         """
         Update session payment status.

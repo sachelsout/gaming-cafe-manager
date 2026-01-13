@@ -54,6 +54,11 @@ class MainWindow:
         menubar.add_cascade(label="View", menu=view_menu)
         view_menu.add_command(label="Refresh Dashboard", command=self.dashboard.refresh)
         
+        # Reports menu
+        reports_menu = tk.Menu(menubar, bg=COLORS["bg_card"], fg=COLORS["text_primary"], tearoff=0)
+        menubar.add_cascade(label="Reports", menu=reports_menu)
+        reports_menu.add_command(label="Session History & Revenue", command=self._open_session_history)
+        
         # Help menu
         help_menu = tk.Menu(menubar, bg=COLORS["bg_card"], fg=COLORS["text_primary"], tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
@@ -68,3 +73,8 @@ class MainWindow:
             "A Windows desktop application for managing gaming cafe sessions.\n"
             "Built with Python, Tkinter, and SQLite."
         )
+    
+    def _open_session_history(self):
+        """Open the session history and revenue summary dialog."""
+        from app.ui.dialogs.session_history_dialog import SessionHistoryDialog
+        SessionHistoryDialog(self.root, self.db)
