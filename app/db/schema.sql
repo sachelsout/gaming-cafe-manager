@@ -5,6 +5,9 @@
 CREATE TABLE IF NOT EXISTS systems (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     system_name TEXT NOT NULL UNIQUE,
+    system_type TEXT NOT NULL,
+    default_hourly_rate REAL NOT NULL,
+    availability TEXT DEFAULT 'Available' CHECK(availability IN ('Available', 'In Use')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -64,6 +64,12 @@ def _initialize_default_systems(db: DatabaseConnection):
     """
     Insert default gaming systems if the systems table is empty.
     
+    Default rates in PKR (Pakistani Rupees):
+    - PlayStation 4: 200/hour (older console)
+    - PlayStation 5: 250/hour (newer console)
+    - Xbox One: 200/hour
+    - PC Gaming: 300/hour (higher demand)
+    
     Args:
         db: DatabaseConnection instance
     """
@@ -71,18 +77,18 @@ def _initialize_default_systems(db: DatabaseConnection):
     result = db.fetch_one("SELECT COUNT(*) as count FROM systems")
     
     if result["count"] == 0:
-        # Insert default systems
+        # Insert default systems with types and rates
         default_systems = [
-            "PS-4",
-            "PS-5",
-            "XB-01",
-            "XB-02",
-            "PC-01",
-            "PC-02",
+            ("PS-4", "PlayStation", 200.0),
+            ("PS-5", "PlayStation", 250.0),
+            ("XB-01", "Xbox", 200.0),
+            ("XB-02", "Xbox", 200.0),
+            ("PC-01", "PC Gaming", 300.0),
+            ("PC-02", "PC Gaming", 300.0),
         ]
         
-        for system_name in default_systems:
+        for system_name, system_type, hourly_rate in default_systems:
             db.insert(
-                "INSERT INTO systems (system_name) VALUES (?)",
-                (system_name,)
+                "INSERT INTO systems (system_name, system_type, default_hourly_rate) VALUES (?, ?, ?)",
+                (system_name, system_type, hourly_rate)
             )
