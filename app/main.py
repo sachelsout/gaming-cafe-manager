@@ -15,11 +15,15 @@ sys.path.insert(0, str(WORKSPACE_ROOT))
 import tkinter as tk
 from tkinter import messagebox
 from app.ui.main_window import MainWindow
+from app.db.init import initialize_database
 
 
 def main():
     """Initialize and start the application."""
     try:
+        # Initialize database (creates tables if first run)
+        initialize_database()
+        
         # Create root window
         root = tk.Tk()
         root.title("Gaming Cafe Manager")
