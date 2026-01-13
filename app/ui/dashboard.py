@@ -38,15 +38,22 @@ class Dashboard:
         self.refresh()
     
     def _create_header(self):
-        """Create dashboard header with title and refresh button."""
+        """Create dashboard header with title and action buttons."""
         header = ttk.Frame(self.container)
         header.pack(fill=tk.X, pady=(0, 10))
         
         title = ttk.Label(header, text="Gaming Cafe Dashboard", style="Title.TLabel")
         title.pack(side=tk.LEFT)
         
-        refresh_btn = ttk.Button(header, text="🔄 Refresh", command=self.refresh)
-        refresh_btn.pack(side=tk.RIGHT)
+        # Buttons on the right
+        button_frame = ttk.Frame(header)
+        button_frame.pack(side=tk.RIGHT)
+        
+        start_btn = ttk.Button(button_frame, text="+ Start Session", command=self._show_start_session)
+        start_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        refresh_btn = ttk.Button(button_frame, text="🔄 Refresh", command=self.refresh)
+        refresh_btn.pack(side=tk.LEFT)
     
     def _create_content(self):
         """Create main content area with systems and sessions."""
@@ -217,3 +224,8 @@ class Dashboard:
                 "end",
                 values=(system_name, customer, duration_str, rate, total)
             )
+    
+    def _show_start_session(self):
+        """Show start session dialog."""
+        from app.ui.dialogs.start_session_dialog import StartSessionDialog
+        StartSessionDialog(self.parent, self.db, on_success=self.refresh)

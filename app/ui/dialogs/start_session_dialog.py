@@ -1,0 +1,217 @@
+"""Start Session dialog for creating new gaming sessions."""
+
+import tkinter as tk
+from tkinter import ttk, messagebox
+from datetime import datetime
+from typing import Optional, Callable
+from app.ui.styles import COLORS, FONTS
+from app.services.system_service import SystemService
+from app.services.session_service import SessionService
+from app.db.connection import DatabaseConnection
+
+
+class StartSessionDialog:
+    """Dialog for starting a new gaming session."""
+    
+    def __init__(self, parent: tk.Widget, db: DatabaseConnection, on_success: Optional[Callable] = None):
+        """
+        Initialize start session dialog.
+        
+        Args:
+            parent: Parent widget
+            db: DatabaseConnection instance
+            on_success: Optional callback when session is created successfully
+        """
+        self.parent = parent
+        self.db = db
+        self.system_service = SystemService(db)
+        self.session_service = SessionService(db)
+        self.on_success = on_success
+        
+        # Create dialog window
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Start New Session")
+        self.dialog.geometry("400x350")
+        self.dialog.resizable(False, False)
+        self.dialog.configure(bg=COLORS["bg_dark"])
+        
+        # Make dialog modal
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Center dialog on parent
+        self.dialog.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (350 // 2)
+        self.dialog.geometry(f"+{x}+{y}")
+        
+        # Result
+        self.result = None
+        
+        # Build UI
+        self._create_ui()
+    
+    def _create_ui(self):
+        """Create dialog UI components."""
+        # Main container
+        container = ttk.Frame(self.dialog)
+        container.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        
+        # System selection
+        system_label = ttk.Label(container, text="Select System *", style="Heading.TLabel")
+        system_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
+        
+        self.system_var = tk.StringVar()
+        available_systems = self.system_service.get_available_systems()
+        
+        if not available_systems:
+            messagebox.showwarning("No Systems Available", "All systems are currently in use.")
+            self.dialog.destroy()
+            return
+        
+        system_choices = [f"{s.system_name} ({s.system_type})" for s in available_systems]
+        system_combo = ttk.Combobox(
+            container,
+            textvariable=self.system_var,
+            values=system_choices,
+            state="readonly",
+            width=35
+        )
+        system_combo.grid(row=0, column=1, sticky=tk.EW, pady=(0, 10))
+        system_combo.current(0)  # Select first available system
+        
+        self.available_systems = available_systems
+        
+        # Customer name
+        customer_label = ttk.Label(container, text="Customer Name *", style="Heading.TLabel")
+        customer_label.grid(row=1, column=0, sticky=tk.W, pady=(0, 5))
+        
+        self.customer_var = tk.StringVar()
+        customer_entry = ttk.Entry(container, textvariable=self.customer_var, width=38)
+        customer_entry.grid(row=1, column=1, sticky=tk.EW, pady=(0, 10))
+        customer_entry.focus()
+        
+        # Login time
+        time_label = ttk.Label(container, text="Login Time", style="Heading.TLabel")
+        time_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 5))
+        
+        self.time_var = tk.StringVar(value=datetime.now().strftime("%H:%M:%S"))
+        time_entry = ttk.Entry(container, textvariable=self.time_var, width=38)
+        time_entry.grid(row=2, column=1, sticky=tk.EW, pady=(0, 10))
+        
+        # Hourly rate
+        rate_label = ttk.Label(container, text="Hourly Rate *", style="Heading.TLabel")
+        rate_label.grid(row=3, column=0, sticky=tk.W, pady=(0, 5))
+        
+        self.rate_var = tk.StringVar(
+            value=str(available_systems[0].default_hourly_rate) if available_systems else "0"
+        )
+        rate_entry = ttk.Entry(container, textvariable=self.rate_var, width=38)
+        rate_entry.grid(row=3, column=1, sticky=tk.EW, pady=(0, 10))
+        
+        # Update rate when system changes
+        system_combo.bind("<<ComboboxSelected>>", self._on_system_changed)
+        
+        # Notes
+        notes_label = ttk.Label(container, text="Notes (Optional)", style="Heading.TLabel")
+        notes_label.grid(row=4, column=0, sticky=tk.NW, pady=(0, 5))
+        
+        self.notes_text = tk.Text(container, height=3, width=38, bg=COLORS["bg_card"], fg=COLORS["text_primary"])
+        self.notes_text.grid(row=4, column=1, sticky=tk.EW, pady=(0, 10))
+        
+        # Configure grid
+        container.grid_columnconfigure(1, weight=1)
+        
+        # Button frame
+        button_frame = ttk.Frame(container)
+        button_frame.grid(row=5, column=0, columnspan=2, sticky=tk.EW, pady=(20, 0))
+        
+        start_btn = ttk.Button(button_frame, text="Start Session", command=self._start_session)
+        start_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        cancel_btn = ttk.Button(button_frame, text="Cancel", command=self.dialog.destroy)
+        cancel_btn.pack(side=tk.RIGHT)
+    
+    def _on_system_changed(self, event=None):
+        """Update hourly rate when system selection changes."""
+        selected_idx = self.available_systems[0:1]  # Start with first
+        
+        # Find selected system in list
+        for i, system in enumerate(self.available_systems):
+            system_display = f"{system.system_name} ({system.system_type})"
+            if self.system_var.get() == system_display:
+                self.rate_var.set(str(system.default_hourly_rate))
+                break
+    
+    def _start_session(self):
+        """Create the session and close dialog."""
+        # Validate inputs
+        if not self.system_var.get():
+            messagebox.showerror("Validation Error", "Please select a system.")
+            return
+        
+        if not self.customer_var.get().strip():
+            messagebox.showerror("Validation Error", "Please enter a customer name.")
+            return
+        
+        try:
+            rate = float(self.rate_var.get())
+            if rate <= 0:
+                raise ValueError("Rate must be greater than 0")
+        except ValueError:
+            messagebox.showerror("Validation Error", "Please enter a valid hourly rate (number > 0).")
+            return
+        
+        try:
+            # Parse and validate time
+            datetime.strptime(self.time_var.get(), "%H:%M:%S")
+        except ValueError:
+            messagebox.showerror("Validation Error", "Invalid time format. Use HH:MM:SS.")
+            return
+        
+        # Get selected system
+        system_display = self.system_var.get()
+        selected_system = None
+        for system in self.available_systems:
+            system_text = f"{system.system_name} ({system.system_type})"
+            if system_text == system_display:
+                selected_system = system
+                break
+        
+        if not selected_system:
+            messagebox.showerror("Error", "Selected system not found.")
+            return
+        
+        # Double-check system is still available (prevent race condition)
+        current_system = self.system_service.get_system_by_id(selected_system.id)
+        if current_system and current_system.availability != "Available":
+            messagebox.showerror("System In Use", f"{selected_system.system_name} is no longer available.")
+            return
+        
+        try:
+            # Get notes
+            notes = self.notes_text.get("1.0", tk.END).strip() or None
+            
+            # Create session
+            session_id = self.session_service.create_session(
+                date=datetime.now().strftime("%Y-%m-%d"),
+                customer_name=self.customer_var.get().strip(),
+                system_id=selected_system.id,
+                login_time=self.time_var.get(),
+                hourly_rate=rate,
+                notes=notes
+            )
+            
+            # Mark system as in use
+            self.system_service.set_system_availability(selected_system.id, "In Use")
+            
+            messagebox.showinfo("Success", f"Session started for {self.customer_var.get()} on {selected_system.system_name}")
+            
+            # Call success callback if provided
+            if self.on_success:
+                self.on_success()
+            
+            self.dialog.destroy()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start session: {str(e)}")
