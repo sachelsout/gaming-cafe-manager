@@ -549,14 +549,14 @@ class SessionService:
             - pending_total: Total from pending payments
         """
         rows = self.db.fetch_all(
-            """SELECT COALESCE(SUM(CASE WHEN payment_status = 'Paid-Cash' THEN total_due ELSE 0 END), 0) as cash_total,
-                      COALESCE(SUM(CASE WHEN payment_status = 'Paid-Online' THEN total_due ELSE 0 END), 0) as online_total,
-                      COALESCE(SUM(CASE WHEN payment_status = 'Paid-Mixed' THEN total_due ELSE 0 END), 0) as mixed_total,
+            """SELECT COALESCE(SUM(CASE WHEN payment_method = 'Cash' AND payment_status = 'PAID' THEN total_due ELSE 0 END), 0) as cash_total,
+                      COALESCE(SUM(CASE WHEN payment_method = 'Online' AND payment_status = 'PAID' THEN total_due ELSE 0 END), 0) as online_total,
+                      COALESCE(SUM(CASE WHEN payment_method = 'Mixed' AND payment_status = 'PAID' THEN total_due ELSE 0 END), 0) as mixed_total,
                       COALESCE(SUM(CASE WHEN payment_status = 'Pending' THEN total_due ELSE 0 END), 0) as pending_total,
                       COUNT(*) as session_count,
-                      COALESCE(SUM(CASE WHEN payment_status IN ('Paid-Cash', 'Paid-Online', 'Paid-Mixed') THEN total_due ELSE 0 END), 0) as total_revenue
+                      COALESCE(SUM(CASE WHEN payment_status = 'PAID' THEN total_due ELSE 0 END), 0) as total_revenue
                FROM sessions
-               WHERE date = ? AND logout_time IS NOT NULL""",
+               WHERE date = ? AND session_state = 'COMPLETED'""",
             (date,)
         )
         
@@ -591,14 +591,14 @@ class SessionService:
             Dictionary with revenue breakdown by payment method and totals
         """
         rows = self.db.fetch_all(
-            """SELECT COALESCE(SUM(CASE WHEN payment_status = 'Paid-Cash' THEN total_due ELSE 0 END), 0) as cash_total,
-                      COALESCE(SUM(CASE WHEN payment_status = 'Paid-Online' THEN total_due ELSE 0 END), 0) as online_total,
-                      COALESCE(SUM(CASE WHEN payment_status = 'Paid-Mixed' THEN total_due ELSE 0 END), 0) as mixed_total,
+            """SELECT COALESCE(SUM(CASE WHEN payment_method = 'Cash' AND payment_status = 'PAID' THEN total_due ELSE 0 END), 0) as cash_total,
+                      COALESCE(SUM(CASE WHEN payment_method = 'Online' AND payment_status = 'PAID' THEN total_due ELSE 0 END), 0) as online_total,
+                      COALESCE(SUM(CASE WHEN payment_method = 'Mixed' AND payment_status = 'PAID' THEN total_due ELSE 0 END), 0) as mixed_total,
                       COALESCE(SUM(CASE WHEN payment_status = 'Pending' THEN total_due ELSE 0 END), 0) as pending_total,
                       COUNT(*) as session_count,
-                      COALESCE(SUM(CASE WHEN payment_status IN ('Paid-Cash', 'Paid-Online', 'Paid-Mixed') THEN total_due ELSE 0 END), 0) as total_revenue
+                      COALESCE(SUM(CASE WHEN payment_status = 'PAID' THEN total_due ELSE 0 END), 0) as total_revenue
                FROM sessions
-               WHERE date >= ? AND date <= ? AND logout_time IS NOT NULL""",
+               WHERE date >= ? AND date <= ? AND session_state = 'COMPLETED'""",
             (start_date, end_date)
         )
         
@@ -623,11 +623,15 @@ class SessionService:
     
     def update_payment_status(self, session_id: int, payment_status: str) -> bool:
         """
-        Update session payment status.
+        DEPRECATED: Update session payment status.
+        
+        Note: In prepaid model, payment_status is set to 'PAID' at creation.
+        This method is kept for backward compatibility but should not be used
+        for new code. Use create_prepaid_session() to create paid sessions.
         
         Args:
             session_id: Session ID
-            payment_status: 'Paid-Cash', 'Paid-Online', or 'Pending'
+            payment_status: 'PAID', 'Pending', or 'Refunded'
         
         Returns:
             True if successful, False otherwise

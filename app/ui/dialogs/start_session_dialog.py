@@ -8,8 +8,7 @@ from app.ui.styles import COLORS, FONTS
 from app.services.system_service import SystemService
 from app.services.session_service import SessionService
 from app.db.connection import DatabaseConnection
-from app.utils.time_utils import get_current_time_12hr, parse_time_12hr
-from app.utils.validators import validate_customer_name, validate_time_format, validate_hourly_rate, validate_notes
+from app.utils.validators import validate_customer_name, validate_hourly_rate, validate_notes
 from app.ui.dialogs.error_dialog import show_validation_error, show_error, show_success
 from app.services.session_service import SessionError
 
@@ -35,7 +34,7 @@ class StartSessionDialog:
         # Create dialog window
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Start New Session")
-        self.dialog.geometry("400x350")
+        self.dialog.geometry("400x500")
         self.dialog.resizable(False, False)
         self.dialog.configure(bg=COLORS["bg_dark"])
         
@@ -46,7 +45,7 @@ class StartSessionDialog:
         # Center dialog on parent
         self.dialog.update_idletasks()
         x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (350 // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (500 // 2)
         self.dialog.geometry(f"+{x}+{y}")
         
         # Result
@@ -95,40 +94,54 @@ class StartSessionDialog:
         customer_entry.grid(row=1, column=1, sticky=tk.EW, pady=(0, 10))
         customer_entry.focus()
         
-        # Login time
-        time_label = ttk.Label(container, text="Login Time", style="Heading.TLabel")
-        time_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 5))
-        
-        self.time_var = tk.StringVar(value=get_current_time_12hr())
-        time_entry = ttk.Entry(container, textvariable=self.time_var, width=38)
-        time_entry.grid(row=2, column=1, sticky=tk.EW, pady=(0, 10))
-        
         # Hourly rate
         rate_label = ttk.Label(container, text="Hourly Rate *", style="Heading.TLabel")
-        rate_label.grid(row=3, column=0, sticky=tk.W, pady=(0, 5))
+        rate_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 5))
         
         self.rate_var = tk.StringVar(
             value=str(available_systems[0].default_hourly_rate) if available_systems else "0"
         )
         rate_entry = ttk.Entry(container, textvariable=self.rate_var, width=38)
-        rate_entry.grid(row=3, column=1, sticky=tk.EW, pady=(0, 10))
+        rate_entry.grid(row=2, column=1, sticky=tk.EW, pady=(0, 10))
         
         # Update rate when system changes
         system_combo.bind("<<ComboboxSelected>>", self._on_system_changed)
         
+        # Planned duration (hours)
+        duration_label = ttk.Label(container, text="Planned Duration (Hours) *", style="Heading.TLabel")
+        duration_label.grid(row=3, column=0, sticky=tk.W, pady=(0, 5))
+        
+        self.duration_var = tk.StringVar(value="1")
+        duration_entry = ttk.Entry(container, textvariable=self.duration_var, width=38)
+        duration_entry.grid(row=3, column=1, sticky=tk.EW, pady=(0, 10))
+        
+        # Payment method
+        payment_label = ttk.Label(container, text="Payment Method *", style="Heading.TLabel")
+        payment_label.grid(row=4, column=0, sticky=tk.W, pady=(0, 5))
+        
+        self.payment_var = tk.StringVar(value="Cash")
+        payment_combo = ttk.Combobox(
+            container,
+            textvariable=self.payment_var,
+            values=["Cash", "Online", "Mixed"],
+            state="readonly",
+            width=35
+        )
+        payment_combo.grid(row=4, column=1, sticky=tk.EW, pady=(0, 10))
+        
         # Notes
         notes_label = ttk.Label(container, text="Notes (Optional)", style="Heading.TLabel")
-        notes_label.grid(row=4, column=0, sticky=tk.NW, pady=(0, 5))
+        notes_label.grid(row=5, column=0, sticky=tk.NW, pady=(0, 5))
         
         self.notes_text = tk.Text(container, height=3, width=38, bg=COLORS["bg_card"], fg=COLORS["text_primary"])
-        self.notes_text.grid(row=4, column=1, sticky=tk.EW, pady=(0, 10))
+        self.notes_text.grid(row=5, column=1, sticky=tk.EW, pady=(0, 10))
         
         # Configure grid
         container.grid_columnconfigure(1, weight=1)
         
         # Button frame
         button_frame = ttk.Frame(container)
-        button_frame.grid(row=5, column=0, columnspan=2, sticky=tk.EW, pady=(20, 0))
+        button_frame.grid(row=7, column=0, columnspan=2, sticky=tk.EW, pady=(20, 0))
         
         start_btn = ttk.Button(button_frame, text="Start Session", command=self._start_session)
         start_btn.pack(side=tk.RIGHT, padx=(5, 0))
@@ -170,18 +183,17 @@ class StartSessionDialog:
         
         rate = float(rate_str)
         
-        # Validate time format
-        time_input = self.time_var.get()
-        is_valid, error_msg = validate_time_format(time_input)
-        if not is_valid:
-            show_validation_error(self.dialog, error_msg)
-            return
-        
+        # Validate planned duration (hours)
+        duration_str = self.duration_var.get()
         try:
-            # Parse time from 12-hour to 24-hour format
-            login_time_24hr = parse_time_12hr(time_input)
+            duration_hours = float(duration_str)
+            if duration_hours <= 0:
+                raise ValueError("must be greater than 0")
+            if duration_hours > 24:
+                raise ValueError("cannot exceed 24 hours")
+            duration_min = int(duration_hours * 60)
         except ValueError as e:
-            show_validation_error(self.dialog, f"Invalid time: {str(e)}")
+            show_validation_error(self.dialog, f"Invalid planned duration: {str(e)}")
             return
         
         # Get selected system
@@ -209,6 +221,9 @@ class StartSessionDialog:
                       f"Failed to check system availability: {str(e)}")
             return
         
+        # Get payment method
+        payment_method = self.payment_var.get()
+        
         try:
             # Validate notes if provided
             notes = self.notes_text.get("1.0", tk.END).strip() or None
@@ -218,21 +233,42 @@ class StartSessionDialog:
                     show_validation_error(self.dialog, error_msg)
                     return
             
-            # Create session
-            session_id = self.session_service.create_session(
+            # Calculate total amount based on planned duration
+            total_amount = (duration_hours * rate)
+            
+            # Create prepaid session (PLANNED state)
+            session_id = self.session_service.create_prepaid_session(
                 date=datetime.now().strftime("%Y-%m-%d"),
                 customer_name=customer_name.strip(),
                 system_id=selected_system.id,
-                login_time=login_time_24hr,
+                planned_duration_min=duration_min,
                 hourly_rate=rate,
+                payment_method=payment_method,
+                extra_charges=0.0,
                 notes=notes
             )
+            
+            # Immediately start the session with current time (transition PLANNED -> ACTIVE)
+            # Use the actual current time (with microseconds precision), not user input, to ensure accurate countdown
+            # This captures the exact moment start_session() is called, ensuring each session has a unique timestamp
+            login_time_24hr = datetime.now().strftime("%H:%M:%S")
+            success = self.session_service.start_session(session_id, login_time_24hr)
+            if not success:
+                show_error(self.dialog, "Failed to Start Session", 
+                          "Session was created but could not be started.")
+                return
             
             # Mark system as in use
             self.system_service.set_system_availability(selected_system.id, "In Use")
             
+            # Format duration for display
+            from app.utils.time_utils import format_duration
+            duration_display = format_duration(duration_min)
+            
             show_success(self.dialog, "Session Started", 
-                        f"Session started for {customer_name} on {selected_system.system_name}")
+                        f"Session started for {customer_name}\n" + 
+                        f"System: {selected_system.system_name}\n" +
+                        f"Duration: {duration_display} = ₹{total_amount:.2f}")
             
             # Call success callback if provided
             if self.on_success:
@@ -243,5 +279,5 @@ class StartSessionDialog:
         except SessionError as e:
             show_validation_error(self.dialog, str(e))
         except Exception as e:
-            show_error(self.dialog, "Failed to Start Session", 
-                      f"An error occurred while starting the session: {str(e)}")
+            show_error(self.dialog, "Failed to Create Session", 
+                      f"An error occurred while creating the session: {str(e)}")

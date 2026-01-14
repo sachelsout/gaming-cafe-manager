@@ -1,11 +1,12 @@
 """Main application window."""
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from pathlib import Path
 from app.ui.styles import COLORS, configure_dark_theme
 from app.ui.dashboard import Dashboard
 from app.db.connection import DatabaseConnection
+from app.utils.session_timer import SessionTimerManager
 
 
 class MainWindow:
@@ -23,6 +24,13 @@ class MainWindow:
         self.root = root
         self.db = db
         self.db_path = db_path or db.db_path
+        
+        # Initialize session timer manager
+        self.timer_manager = SessionTimerManager(
+            on_warning=self._on_session_warning,
+            on_time_up=self._on_session_time_up
+        )
+        
         self._setup_theme()
         self._setup_ui()
     
@@ -37,7 +45,7 @@ class MainWindow:
     def _setup_ui(self):
         """Set up the main UI components."""
         # Create main dashboard first
-        self.dashboard = Dashboard(self.root, self.db)
+        self.dashboard = Dashboard(self.root, self.db, self.timer_manager)
         
         # Create menu bar (needs dashboard reference)
         self._create_menu()
@@ -108,3 +116,21 @@ class MainWindow:
             )
         except Exception as e:
             messagebox.showerror("Backup Failed", f"Failed to create backup:\n{str(e)}")
+    
+    def _on_session_warning(self, message: str):
+        """Handle session warning notification."""
+        # Show warning popup
+        messagebox.showwarning("Session Time Warning", message)
+        # Also refresh dashboard to show updated times
+        self.root.after(100, self.dashboard.refresh)
+    
+    def _on_session_time_up(self, message: str):
+        """Handle session time-up notification."""
+        # Show critical notification
+        messagebox.showwarning("Session Time Exceeded", message)
+        # Refresh dashboard
+        self.root.after(100, self.dashboard.refresh)
+    
+    def cleanup(self):
+        """Clean up resources before closing."""
+        self.timer_manager.stop_all()

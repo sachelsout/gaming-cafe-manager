@@ -41,23 +41,17 @@ def calculate_duration_minutes(login_time: str, logout_time: str) -> int:
 
 def format_duration(duration_minutes: int) -> str:
     """
-    Format duration in minutes to human-readable HH:MM format.
+    Format duration in minutes to human-readable format with leading zeros.
     
     Args:
         duration_minutes: Duration in minutes
     
     Returns:
-        Formatted string like "2h 15m"
+        Formatted string like "01h30m", "02h00m", "00h45m"
     """
     hours = duration_minutes // 60
     minutes = duration_minutes % 60
-    
-    if hours == 0:
-        return f"{minutes}m"
-    elif minutes == 0:
-        return f"{hours}h"
-    else:
-        return f"{hours}h {minutes}m"
+    return f"{hours:02d}h{minutes:02d}m"
 
 
 def format_duration_with_seconds(duration_seconds: int) -> str:
@@ -219,3 +213,22 @@ def calculate_elapsed_seconds(login_time: str) -> int:
     
     except ValueError as e:
         raise ValueError(f"Invalid time format. Expected HH:MM:SS. Error: {e}")
+
+def parse_time_24hr_to_datetime(time_24hr: str) -> datetime:
+    """
+    Convert 24-hour time string to datetime object with today's date.
+    
+    Args:
+        time_24hr: Time in HH:MM:SS format (24-hour)
+    
+    Returns:
+        datetime object with today's date and given time
+    """
+    try:
+        return datetime.strptime(time_24hr, "%H:%M:%S").replace(
+            year=datetime.now().year,
+            month=datetime.now().month,
+            day=datetime.now().day
+        )
+    except ValueError:
+        raise ValueError(f"Invalid time format. Expected HH:MM:SS. Got: {time_24hr}")

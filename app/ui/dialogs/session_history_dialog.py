@@ -33,7 +33,7 @@ class SessionHistoryDialog:
         # Create dialog window
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Session History & Revenue Summary")
-        self.dialog.geometry("900x600")
+        self.dialog.geometry("1000x700")
         self.dialog.resizable(True, True)
         self.dialog.configure(bg=COLORS["bg_dark"])
         
@@ -43,8 +43,8 @@ class SessionHistoryDialog:
         
         # Center dialog on parent
         self.dialog.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() // 2) - (900 // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (600 // 2)
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (1000 // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (700 // 2)
         self.dialog.geometry(f"+{x}+{y}")
         
         # Build UI
@@ -110,12 +110,13 @@ class SessionHistoryDialog:
         table_frame = ttk.LabelFrame(main_frame, text="Completed Sessions", padding=0)
         table_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Create treeview for sessions
+        # Create treeview for sessions with multi-select enabled
         self.sessions_tree = ttk.Treeview(
             table_frame,
-            columns=("date", "customer", "system", "login", "logout", "duration", "rate", "extra", "total", "payment", "notes"),
+            columns=("date", "customer", "system", "login", "logout", "duration", "rate", "paid", "payment", "notes"),
             height=15,
-            show="headings"
+            show="headings",
+            selectmode="extended"  # Allow multi-select
         )
         
         # Define columns
@@ -124,12 +125,11 @@ class SessionHistoryDialog:
         self.sessions_tree.column("system", width=75, anchor=tk.CENTER)
         self.sessions_tree.column("login", width=75, anchor=tk.CENTER)
         self.sessions_tree.column("logout", width=75, anchor=tk.CENTER)
-        self.sessions_tree.column("duration", width=65, anchor=tk.CENTER)
+        self.sessions_tree.column("duration", width=70, anchor=tk.CENTER)
         self.sessions_tree.column("rate", width=60, anchor=tk.CENTER)
-        self.sessions_tree.column("extra", width=60, anchor=tk.CENTER)
-        self.sessions_tree.column("total", width=70, anchor=tk.E)
+        self.sessions_tree.column("paid", width=75, anchor=tk.E)
         self.sessions_tree.column("payment", width=75, anchor=tk.CENTER)
-        self.sessions_tree.column("notes", width=120, anchor=tk.W)
+        self.sessions_tree.column("notes", width=100, anchor=tk.W)
         
         # Define headings
         self.sessions_tree.heading("date", text="Date")
@@ -139,8 +139,7 @@ class SessionHistoryDialog:
         self.sessions_tree.heading("logout", text="Logout")
         self.sessions_tree.heading("duration", text="Duration")
         self.sessions_tree.heading("rate", text="Rate")
-        self.sessions_tree.heading("extra", text="Extra")
-        self.sessions_tree.heading("total", text="Total")
+        self.sessions_tree.heading("paid", text="Amount Paid")
         self.sessions_tree.heading("payment", text="Payment")
         self.sessions_tree.heading("notes", text="Notes")
         
@@ -160,6 +159,12 @@ class SessionHistoryDialog:
         # Button frame
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=(15, 0))
+        
+        delete_btn = ttk.Button(button_frame, text="Delete Selected", command=self._delete_selected_sessions)
+        delete_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        delete_all_btn = ttk.Button(button_frame, text="Delete All", command=self._delete_all_sessions)
+        delete_all_btn.pack(side=tk.LEFT, padx=(0, 5))
         
         export_btn = ttk.Button(button_frame, text="Export to CSV", command=self._export_csv)
         export_btn.pack(side=tk.RIGHT, padx=(5, 0))
@@ -210,10 +215,14 @@ class SessionHistoryDialog:
             
             # Populate tree with sessions
             for session in sessions:
-                # In prepaid model, actual_duration_min contains the actual session duration
-                duration_str = f"{session.actual_duration_min}m" if session.actual_duration_min else "--"
-                # In prepaid model, payment_method field contains the payment method (Cash/Online/Mixed)
+                # Format planned duration in XhYm format
+                from app.utils.time_utils import format_duration
+                duration_str = format_duration(session.planned_duration_min) if session.planned_duration_min else "N/A"
+                
+                # Payment method
                 payment_method = session.payment_method if hasattr(session, 'payment_method') and session.payment_method else "Cash"
+                
+                # Format times
                 login_12hr = format_time_12hr(session.login_time) if session.login_time else "--"
                 logout_12hr = format_time_12hr(session.logout_time) if session.logout_time else "--"
                 
@@ -225,8 +234,7 @@ class SessionHistoryDialog:
                     logout_12hr,
                     duration_str,
                     f"₹{session.hourly_rate:.0f}",
-                    f"₹{session.extra_charges:.2f}" if session.extra_charges else "₹0.00",
-                    f"₹{session.total_due:.2f}" if session.total_due else "₹0.00",
+                    f"₹{session.paid_amount:.2f}" if session.paid_amount else "₹0.00",
                     payment_method,
                     session.notes or ""
                 ))
@@ -252,6 +260,134 @@ class SessionHistoryDialog:
         )
         self.summary_label.config(text=summary_text)
     
+    def _delete_selected_sessions(self):
+        """Delete selected session records from database."""
+        # Get selected items
+        selected_items = self.sessions_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("No Selection", "Please select one or more sessions to delete.")
+            return
+        
+        # Confirm deletion
+        result = messagebox.askyesno(
+            "Confirm Deletion",
+            f"Are you sure you want to delete {len(selected_items)} session record(s)?\n\nThis action cannot be undone."
+        )
+        
+        if not result:
+            return
+        
+        try:
+            # Collect session IDs from selected rows
+            sessions = self.session_service.get_completed_sessions(
+                self.start_date_var.get(),
+                self.end_date_var.get()
+            )
+            
+            session_id_map = {}
+            for session in sessions:
+                key = (session.date, session.customer_name, session.system_name)
+                session_id_map[key] = session.id
+            
+            deleted_count = 0
+            failed_count = 0
+            
+            # Delete each selected session
+            for item in selected_items:
+                values = self.sessions_tree.item(item)["values"]
+                key = (values[0], values[1], values[2])  # date, customer, system
+                
+                if key in session_id_map:
+                    session_id = session_id_map[key]
+                    try:
+                        rows_affected = self.db.delete(
+                            "DELETE FROM sessions WHERE id = ?",
+                            (session_id,)
+                        )
+                        if rows_affected > 0:
+                            deleted_count += 1
+                        else:
+                            failed_count += 1
+                    except Exception as e:
+                        print(f"Failed to delete session {session_id}: {str(e)}")
+                        failed_count += 1
+            
+            # Refresh the list
+            self._load_data()
+            
+            # Show result message
+            if failed_count == 0:
+                messagebox.showinfo("Success", f"Successfully deleted {deleted_count} session record(s).")
+            else:
+                messagebox.showwarning(
+                    "Partial Success",
+                    f"Deleted {deleted_count} session(s).\nFailed to delete {failed_count} session(s)."
+                )
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete sessions: {str(e)}")
+    
+    def _delete_all_sessions(self):
+        """Delete all session records in the current date range."""
+        # Get all items in current view
+        all_items = self.sessions_tree.get_children()
+        
+        if not all_items:
+            messagebox.showwarning("No Records", "There are no sessions to delete in the current date range.")
+            return
+        
+        # Confirm deletion
+        result = messagebox.askyesno(
+            "Confirm Delete All",
+            f"Are you sure you want to delete ALL {len(all_items)} session record(s) in the selected date range?\n\n"
+            f"From: {self.start_date_var.get()}\n"
+            f"To: {self.end_date_var.get()}\n\n"
+            f"This action cannot be undone!"
+        )
+        
+        if not result:
+            return
+        
+        try:
+            # Fetch all sessions in the date range
+            sessions = self.session_service.get_completed_sessions(
+                self.start_date_var.get(),
+                self.end_date_var.get()
+            )
+            
+            deleted_count = 0
+            failed_count = 0
+            
+            # Delete each session
+            for session in sessions:
+                try:
+                    rows_affected = self.db.delete(
+                        "DELETE FROM sessions WHERE id = ?",
+                        (session.id,)
+                    )
+                    if rows_affected > 0:
+                        deleted_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as e:
+                    print(f"Failed to delete session {session.id}: {str(e)}")
+                    failed_count += 1
+            
+            # Refresh the list
+            self._load_data()
+            
+            # Show result message
+            if failed_count == 0:
+                messagebox.showinfo("Success", f"Successfully deleted all {deleted_count} session record(s).")
+            else:
+                messagebox.showwarning(
+                    "Partial Success",
+                    f"Deleted {deleted_count} session(s).\nFailed to delete {failed_count} session(s)."
+                )
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete sessions: {str(e)}")
+    
     def _export_csv(self):
         """Export session data to CSV file."""
         try:
@@ -274,8 +410,7 @@ class SessionHistoryDialog:
                 
                 # Write header
                 writer.writerow([
-                    "Date", "Customer", "System", "Login (12hr)", "Logout (12hr)", "Duration (min)", "Hourly Rate",
-                    "Extra Charges", "Total Due", "Payment Method", "Notes"
+                    "Date", "Customer", "System", "Login", "Logout", "Duration", "Rate", "Amount Paid", "Payment Method", "Notes"
                 ])
                 
                 # Write rows

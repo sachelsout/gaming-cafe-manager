@@ -58,17 +58,10 @@ class EndSessionDialog:
         self.dialog.geometry(f"+{x}+{y}")
         
         # State variables
-        self.logout_time_var = tk.StringVar(value=get_current_time_12hr())
-        self.extra_charges_var = tk.StringVar(value="0.0")
-        self.rate_var = tk.StringVar(value=str(self.session.hourly_rate))
-        self.payment_method_var = tk.StringVar(value="Paid-Cash")
         self.notes_var = tk.StringVar()
         
         # Build UI
         self._create_ui()
-        
-        # Calculate initial billing
-        self._update_billing()
     
     def _create_ui(self):
         """Create dialog UI components."""
@@ -99,85 +92,30 @@ class EndSessionDialog:
         login_value = ttk.Label(container, text=login_time_12hr, style="TLabel")
         login_value.grid(row=3, column=1, sticky=tk.W)
         
-        # Logout time
-        logout_label = ttk.Label(container, text="Logout Time *", style="Heading.TLabel")
-        logout_label.grid(row=4, column=0, sticky=tk.W, pady=(15, 5))
-        logout_entry = ttk.Entry(container, textvariable=self.logout_time_var, width=30)
-        logout_entry.grid(row=4, column=1, sticky=tk.EW, pady=(15, 5))
-        logout_entry.bind("<KeyRelease>", lambda e: self._update_billing())
+        # Planned duration (read-only)
+        planned_label = ttk.Label(container, text="Planned Duration:", style="TLabel")
+        planned_label.grid(row=4, column=0, sticky=tk.W)
+        from app.utils.time_utils import format_duration
+        planned_str = format_duration(self.session.planned_duration_min) if self.session.planned_duration_min else "N/A"
+        planned_value = ttk.Label(container, text=planned_str, style="TLabel")
+        planned_value.grid(row=4, column=1, sticky=tk.W)
         
-        # Duration display (calculated, read-only)
-        duration_label = ttk.Label(container, text="Duration:", style="TLabel")
-        duration_label.grid(row=5, column=0, sticky=tk.W)
-        self.duration_display = ttk.Label(container, text="-- calculating --", style="TLabel")
-        self.duration_display.grid(row=5, column=1, sticky=tk.W)
+        # Logout time (calculated automatically)
+        logout_label = ttk.Label(container, text="Logout Time (Auto):", style="TLabel")
+        logout_label.grid(row=5, column=0, sticky=tk.W, pady=(10, 0))
+        calculated_logout_time = self._calculate_logout_time()
+        logout_value = ttk.Label(container, text=calculated_logout_time, style="TLabel")
+        logout_value.grid(row=5, column=1, sticky=tk.W, pady=(10, 0))
         
-        # Billing section
-        billing_label = ttk.Label(container, text="Billing Information", style="Heading.TLabel")
-        billing_label.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
+        # Amount paid (read-only)
+        paid_label = ttk.Label(container, text="Amount Paid (Upfront):", style="TLabel")
+        paid_label.grid(row=6, column=0, sticky=tk.W, pady=(10, 0))
+        paid_value = ttk.Label(container, text=f"₹{self.session.paid_amount:.2f}" if self.session.paid_amount else "N/A", style="TLabel")
+        paid_value.grid(row=6, column=1, sticky=tk.W, pady=(10, 0))
         
-        # Hourly rate (editable)
-        rate_label = ttk.Label(container, text="Hourly Rate *", style="Heading.TLabel")
-        rate_label.grid(row=7, column=0, sticky=tk.W, pady=(0, 5))
-        rate_entry = ttk.Entry(container, textvariable=self.rate_var, width=30)
-        rate_entry.grid(row=7, column=1, sticky=tk.EW, pady=(0, 5))
-        rate_entry.bind("<KeyRelease>", lambda e: self._update_billing())
-        
-        # Base amount (calculated, read-only)
-        base_label = ttk.Label(container, text="Base Amount:", style="TLabel")
-        base_label.grid(row=8, column=0, sticky=tk.W)
-        self.base_display = ttk.Label(container, text="0.00", style="TLabel")
-        self.base_display.grid(row=8, column=1, sticky=tk.W)
-        
-        # Extra charges (editable)
-        extra_label = ttk.Label(container, text="Extra Charges", style="Heading.TLabel")
-        extra_label.grid(row=9, column=0, sticky=tk.W, pady=(10, 5))
-        extra_entry = ttk.Entry(container, textvariable=self.extra_charges_var, width=30)
-        extra_entry.grid(row=9, column=1, sticky=tk.EW, pady=(10, 5))
-        extra_entry.bind("<KeyRelease>", lambda e: self._update_billing())
-        
-        # Total due (calculated, read-only, highlighted)
-        total_label = tk.Label(
-            container,
-            text="TOTAL DUE:",
-            bg=COLORS["status_pending"],
-            fg=COLORS["bg_dark"],
-            font=FONTS["heading"],
-            pady=10
-        )
-        total_label.grid(row=10, column=0, sticky=tk.W, pady=(10, 0))
-        
-        self.total_display = tk.Label(
-            container,
-            text="0.00",
-            bg=COLORS["status_pending"],
-            fg=COLORS["bg_dark"],
-            font=("Segoe UI", 16, "bold"),
-            pady=10,
-            padx=10
-        )
-        self.total_display.grid(row=10, column=1, sticky=tk.EW, pady=(10, 0))
-        
-        # Payment section
-        payment_label = ttk.Label(container, text="Payment Information", style="Heading.TLabel")
-        payment_label.grid(row=11, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
-        
-        # Payment method
-        method_label = ttk.Label(container, text="Payment Method *", style="Heading.TLabel")
-        method_label.grid(row=12, column=0, sticky=tk.W, pady=(0, 5))
-        
-        method_combo = ttk.Combobox(
-            container,
-            textvariable=self.payment_method_var,
-            values=["Paid-Cash", "Paid-Online", "Paid-Mixed"],
-            state="readonly",
-            width=27
-        )
-        method_combo.grid(row=12, column=1, sticky=tk.EW, pady=(0, 5))
-        
-        # Notes
-        notes_label = ttk.Label(container, text="Notes (Booking, Payment Split, etc.)", style="Heading.TLabel")
-        notes_label.grid(row=13, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
+        # Notes section
+        notes_label = ttk.Label(container, text="Notes (Optional)", style="Heading.TLabel")
+        notes_label.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=(20, 5))
         
         notes_text = tk.Text(
             container,
@@ -188,7 +126,7 @@ class EndSessionDialog:
             relief=tk.FLAT,
             bd=1
         )
-        notes_text.grid(row=14, column=0, columnspan=2, sticky=tk.EW, pady=(0, 10))
+        notes_text.grid(row=8, column=0, columnspan=2, sticky=tk.EW, pady=(0, 10))
         
         # Bind text widget to variable
         def update_notes(event=None):
@@ -202,7 +140,7 @@ class EndSessionDialog:
         
         # Button frame
         button_frame = ttk.Frame(container)
-        button_frame.grid(row=15, column=0, columnspan=2, sticky=tk.EW, pady=(10, 0))
+        button_frame.grid(row=10, column=0, columnspan=2, sticky=tk.EW, pady=(10, 0))
         
         end_btn = ttk.Button(button_frame, text="End Session & Save", command=self._end_session)
         end_btn.pack(side=tk.RIGHT, padx=(5, 0))
@@ -210,86 +148,51 @@ class EndSessionDialog:
         cancel_btn = ttk.Button(button_frame, text="Cancel", command=self.dialog.destroy)
         cancel_btn.pack(side=tk.RIGHT)
     
-    def _update_billing(self):
-        """Update calculated billing amounts."""
-        try:
-            logout_time_input = self.logout_time_var.get()
-            
-            # Parse and convert 12-hour format to 24-hour format for calculation
-            logout_time_24hr = parse_time_12hr(logout_time_input)
-            
-            # Calculate duration
-            duration_minutes = calculate_duration_minutes(self.session.login_time, logout_time_24hr)
-            duration_str = format_duration(duration_minutes)
-            self.duration_display.config(text=duration_str)
-            
-            # Parse rate
-            try:
-                hourly_rate = float(self.rate_var.get())
-                if hourly_rate < 0:
-                    raise ValueError("Rate cannot be negative")
-            except ValueError:
-                self.base_display.config(text="--")
-                self.total_display.config(text="--")
-                return
-            
-            # Calculate base amount
-            base_amount = calculate_bill(duration_minutes, hourly_rate, 0.0)
-            self.base_display.config(text=f"{base_amount:.2f}")
-            
-            # Parse extra charges
-            try:
-                extra_charges = float(self.extra_charges_var.get())
-                if extra_charges < 0:
-                    raise ValueError("Extra charges cannot be negative")
-            except ValueError:
-                extra_charges = 0.0
-            
-            # Calculate total
-            total = calculate_bill(duration_minutes, hourly_rate, extra_charges)
-            self.total_display.config(text=f"{total:.2f}")
+    def _calculate_logout_time(self) -> str:
+        """Calculate logout time based on login_time + planned_duration_min.
         
-        except (ValueError, TypeError):
-            # Invalid input - show placeholder
-            self.duration_display.config(text="--")
-            self.base_display.config(text="--")
-            self.total_display.config(text="--")
+        Returns:
+            Logout time in 12-hour format (HH:MM AM/PM) or "--" if login_time is missing
+        """
+        if not self.session.login_time or not self.session.planned_duration_min:
+            return "--"
+        
+        try:
+            from app.utils.time_utils import parse_time_24hr_to_datetime
+            from datetime import timedelta
+            # Parse login time to datetime
+            login_dt = parse_time_24hr_to_datetime(self.session.login_time)
+            # Add planned duration
+            logout_dt = login_dt + timedelta(minutes=self.session.planned_duration_min)
+            # Return formatted as 12-hour time
+            return logout_dt.strftime("%I:%M %p")
+        except Exception:
+            return "--"
+    
+    def _get_logout_time_24hr(self) -> str:
+        """Get logout time in 24-hour format based on login_time + planned_duration_min.
+        
+        Returns:
+            Logout time in HH:MM:SS format
+        """
+        from app.utils.time_utils import parse_time_24hr_to_datetime
+        from datetime import timedelta
+        
+        login_dt = parse_time_24hr_to_datetime(self.session.login_time)
+        logout_dt = login_dt + timedelta(minutes=self.session.planned_duration_min)
+        return logout_dt.strftime("%H:%M:%S")
     
     def _end_session(self):
         """End the session and save to database."""
-        # Validate logout time format
-        logout_time_input = self.logout_time_var.get()
-        is_valid, error_msg = validate_time_format(logout_time_input)
-        if not is_valid:
-            show_validation_error(self.dialog, error_msg)
-            return
-        
+        # Calculate logout time automatically from login_time + planned_duration
         try:
-            logout_time_24hr = parse_time_12hr(logout_time_input)
-        except ValueError as e:
-            show_validation_error(self.dialog, f"Invalid logout time: {str(e)}")
+            logout_time_24hr = self._get_logout_time_24hr()
+        except Exception as e:
+            show_validation_error(self.dialog, f"Failed to calculate logout time: {str(e)}")
             return
-        
-        # Validate hourly rate
-        rate_str = self.rate_var.get()
-        is_valid, error_msg = validate_hourly_rate(rate_str)
-        if not is_valid:
-            show_validation_error(self.dialog, error_msg)
-            return
-        
-        hourly_rate = float(rate_str)
-        
-        # Validate extra charges
-        charges_str = self.extra_charges_var.get()
-        is_valid, error_msg = validate_extra_charges(charges_str)
-        if not is_valid:
-            show_validation_error(self.dialog, error_msg)
-            return
-        
-        extra_charges = float(charges_str)
         
         # Validate notes if provided
-        notes = self.notes_var.get()
+        notes = self.notes_text.get("1.0", tk.END).strip() if hasattr(self, 'notes_text') else ""
         if notes:
             is_valid, error_msg = validate_notes(notes)
             if not is_valid:
@@ -297,7 +200,7 @@ class EndSessionDialog:
                 return
         
         try:
-            # Calculate final duration
+            # Calculate actual duration for records
             duration_minutes = calculate_duration_minutes(self.session.login_time, logout_time_24hr)
             
             # Ensure duration is positive
@@ -306,28 +209,13 @@ class EndSessionDialog:
                                      "Logout time must be after login time.")
                 return
             
-            # Update session with new rate if changed
-            if hourly_rate != self.session.hourly_rate:
-                try:
-                    self.db.update(
-                        "UPDATE sessions SET hourly_rate = ? WHERE id = ?",
-                        (hourly_rate, self.session_id)
-                    )
-                except Exception as e:
-                    show_error(self.dialog, "Database Error", 
-                              f"Failed to update hourly rate: {str(e)}")
-                    return
-            
-            # Get payment method
-            payment_status = self.payment_method_var.get()
-            
-            # End the session (calculates actual duration for prepaid model)
+            # End the session (records actual duration but does NOT recalculate charges)
             # Payment was already recorded when session was created/started
             success = self.session_service.end_session(
                 self.session_id,
                 logout_time_24hr,
-                extra_charges,
-                notes
+                extra_charges=0.0,  # No extra charges - use paid amount as-is
+                notes=notes
             )
             
             if not success:
@@ -343,23 +231,14 @@ class EndSessionDialog:
                           f"Session ended but system status could not be updated: {str(e)}")
                 return
             
-            # Show confirmation with formatted amounts
-            total = calculate_bill(duration_minutes, hourly_rate, extra_charges)
-            base = calculate_bill(duration_minutes, hourly_rate, 0.0)
-            
-            # In prepaid model, payment was already recorded when session was created
-            # Show actual duration vs planned duration
-            actual_duration = duration_minutes
-            planned_duration = self.session.planned_duration_min if hasattr(self.session, 'planned_duration_min') else actual_duration
+            # Show confirmation with session details
+            planned_duration = self.session.planned_duration_min if hasattr(self.session, 'planned_duration_min') else 0
             
             show_success(self.dialog, "Session Ended",
                         f"Session ended for {self.session.customer_name}\n\n"
-                        f"Actual Duration: {format_duration(actual_duration)}\n"
                         f"Planned Duration: {format_duration(planned_duration)}\n"
-                        f"Base: ₹{base:.2f}\n"
-                        f"Extra: ₹{extra_charges:.2f}\n"
-                        f"Total: ₹{total:.2f}\n"
-                        f"Paid Amount: ₹{self.session.paid_amount:.2f}")
+                        f"Actual Duration: {format_duration(duration_minutes)}\n"
+                        f"Amount Paid (No Refunds): ₹{self.session.paid_amount:.2f}")
             
             # Call success callback
             if self.on_success:
