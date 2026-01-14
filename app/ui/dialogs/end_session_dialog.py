@@ -321,12 +321,12 @@ class EndSessionDialog:
             # Get payment method
             payment_status = self.payment_method_var.get()
             
-            # End the session (calculates duration and total, saves payment info)
+            # End the session (calculates actual duration for prepaid model)
+            # Payment was already recorded when session was created/started
             success = self.session_service.end_session(
                 self.session_id,
                 logout_time_24hr,
                 extra_charges,
-                payment_status,
                 notes
             )
             
@@ -347,13 +347,19 @@ class EndSessionDialog:
             total = calculate_bill(duration_minutes, hourly_rate, extra_charges)
             base = calculate_bill(duration_minutes, hourly_rate, 0.0)
             
+            # In prepaid model, payment was already recorded when session was created
+            # Show actual duration vs planned duration
+            actual_duration = duration_minutes
+            planned_duration = self.session.planned_duration_min if hasattr(self.session, 'planned_duration_min') else actual_duration
+            
             show_success(self.dialog, "Session Ended",
                         f"Session ended for {self.session.customer_name}\n\n"
-                        f"Duration: {format_duration(duration_minutes)}\n"
+                        f"Actual Duration: {format_duration(actual_duration)}\n"
+                        f"Planned Duration: {format_duration(planned_duration)}\n"
                         f"Base: ₹{base:.2f}\n"
                         f"Extra: ₹{extra_charges:.2f}\n"
                         f"Total: ₹{total:.2f}\n"
-                        f"Payment: {payment_status}")
+                        f"Paid Amount: ₹{self.session.paid_amount:.2f}")
             
             # Call success callback
             if self.on_success:
