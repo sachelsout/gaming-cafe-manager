@@ -106,8 +106,53 @@ def calculate_bill(duration_minutes: int, hourly_rate: float, extra_charges: flo
 
 
 def get_current_time_string() -> str:
-    """Get current time as HH:MM:SS string."""
+    """Get current time as HH:MM:SS string (24-hour format for storage)."""
     return datetime.now().strftime("%H:%M:%S")
+
+
+def format_time_12hr(time_24hr: str) -> str:
+    """
+    Convert 24-hour time to 12-hour format with AM/PM.
+    
+    Args:
+        time_24hr: Time in HH:MM:SS format (24-hour)
+    
+    Returns:
+        Time in HH:MM AM/PM format (12-hour)
+    """
+    try:
+        dt = datetime.strptime(time_24hr, "%H:%M:%S")
+        return dt.strftime("%I:%M %p")
+    except ValueError:
+        raise ValueError(f"Invalid time format. Expected HH:MM:SS. Got: {time_24hr}")
+
+
+def parse_time_12hr(time_12hr: str) -> str:
+    """
+    Convert 12-hour time with AM/PM to 24-hour HH:MM:SS format.
+    
+    Args:
+        time_12hr: Time in HH:MM AM/PM or H:MM AM/PM format
+    
+    Returns:
+        Time in HH:MM:SS format (24-hour)
+    """
+    try:
+        # Try parsing with space between time and AM/PM
+        dt = datetime.strptime(time_12hr.strip(), "%I:%M %p")
+        return dt.strftime("%H:%M:%S")
+    except ValueError:
+        try:
+            # Try other formats
+            dt = datetime.strptime(time_12hr.strip(), "%I:%M%p")
+            return dt.strftime("%H:%M:%S")
+        except ValueError:
+            raise ValueError(f"Invalid 12-hour time format. Use HH:MM AM/PM or H:MM AM/PM. Got: {time_12hr}")
+
+
+def get_current_time_12hr() -> str:
+    """Get current time in 12-hour AM/PM format for display."""
+    return datetime.now().strftime("%I:%M %p")
 
 
 def calculate_elapsed_minutes(login_time: str) -> int:

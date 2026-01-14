@@ -7,7 +7,7 @@ from typing import Optional, Callable
 from app.ui.styles import COLORS, FONTS
 from app.services.session_service import SessionService
 from app.services.system_service import SystemService
-from app.utils.time_utils import calculate_duration_minutes, format_duration, calculate_bill, get_current_time_string
+from app.utils.time_utils import calculate_duration_minutes, format_duration, calculate_bill, get_current_time_12hr, format_time_12hr, parse_time_12hr
 from app.db.connection import DatabaseConnection
 
 
@@ -55,7 +55,7 @@ class EndSessionDialog:
         self.dialog.geometry(f"+{x}+{y}")
         
         # State variables
-        self.logout_time_var = tk.StringVar(value=get_current_time_string())
+        self.logout_time_var = tk.StringVar(value=get_current_time_12hr())
         self.extra_charges_var = tk.StringVar(value="0.0")
         self.rate_var = tk.StringVar(value=str(self.session.hourly_rate))
         self.payment_method_var = tk.StringVar(value="Paid-Cash")
@@ -89,10 +89,11 @@ class EndSessionDialog:
         system_value = ttk.Label(container, text=self.session.system_name, style="TLabel")
         system_value.grid(row=2, column=1, sticky=tk.W)
         
-        # Login time (read-only)
+        # Login time (read-only, display in 12-hour format)
         login_label = ttk.Label(container, text="Login Time:", style="TLabel")
         login_label.grid(row=3, column=0, sticky=tk.W)
-        login_value = ttk.Label(container, text=self.session.login_time, style="TLabel")
+        login_time_12hr = format_time_12hr(self.session.login_time) if self.session.login_time else "--"
+        login_value = ttk.Label(container, text=login_time_12hr, style="TLabel")
         login_value.grid(row=3, column=1, sticky=tk.W)
         
         # Logout time
@@ -209,13 +210,13 @@ class EndSessionDialog:
     def _update_billing(self):
         """Update calculated billing amounts."""
         try:
-            logout_time = self.logout_time_var.get()
+            logout_time_input = self.logout_time_var.get()
             
-            # Validate time format
-            datetime.strptime(logout_time, "%H:%M:%S")
+            # Parse and convert 12-hour format to 24-hour format for calculation
+            logout_time_24hr = parse_time_12hr(logout_time_input)
             
             # Calculate duration
-            duration_minutes = calculate_duration_minutes(self.session.login_time, logout_time)
+            duration_minutes = calculate_duration_minutes(self.session.login_time, logout_time_24hr)
             duration_str = format_duration(duration_minutes)
             self.duration_display.config(text=duration_str)
             
@@ -255,10 +256,10 @@ class EndSessionDialog:
         """End the session and save to database."""
         # Validate logout time
         try:
-            logout_time = self.logout_time_var.get()
-            datetime.strptime(logout_time, "%H:%M:%S")
+            logout_time_input = self.logout_time_var.get()
+            logout_time_24hr = parse_time_12hr(logout_time_input)
         except ValueError:
-            messagebox.showerror("Validation Error", "Invalid logout time format. Use HH:MM:SS.")
+            messagebox.showerror("Validation Error", "Invalid logout time format. Use HH:MM AM/PM or H:MM AM/PM (e.g., 2:30 PM).")
             return
         
         # Validate rate
@@ -281,7 +282,7 @@ class EndSessionDialog:
         
         try:
             # Calculate final duration
-            duration_minutes = calculate_duration_minutes(self.session.login_time, logout_time)
+            duration_minutes = calculate_duration_minutes(self.session.login_time, logout_time_24hr)
             
             # Update session with new rate if changed
             if float(self.rate_var.get()) != self.session.hourly_rate:
@@ -298,7 +299,7 @@ class EndSessionDialog:
             # End the session (calculates duration and total, saves payment info)
             success = self.session_service.end_session(
                 self.session_id,
-                logout_time,
+                logout_time_24hr,
                 extra_charges,
                 payment_status,
                 notes

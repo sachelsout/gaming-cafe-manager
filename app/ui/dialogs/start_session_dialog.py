@@ -8,6 +8,7 @@ from app.ui.styles import COLORS, FONTS
 from app.services.system_service import SystemService
 from app.services.session_service import SessionService
 from app.db.connection import DatabaseConnection
+from app.utils.time_utils import get_current_time_12hr, parse_time_12hr
 
 
 class StartSessionDialog:
@@ -95,7 +96,7 @@ class StartSessionDialog:
         time_label = ttk.Label(container, text="Login Time", style="Heading.TLabel")
         time_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 5))
         
-        self.time_var = tk.StringVar(value=datetime.now().strftime("%H:%M:%S"))
+        self.time_var = tk.StringVar(value=get_current_time_12hr())
         time_entry = ttk.Entry(container, textvariable=self.time_var, width=38)
         time_entry.grid(row=2, column=1, sticky=tk.EW, pady=(0, 10))
         
@@ -163,10 +164,11 @@ class StartSessionDialog:
             return
         
         try:
-            # Parse and validate time
-            datetime.strptime(self.time_var.get(), "%H:%M:%S")
+            # Parse and validate time (accept 12-hour format and convert to 24-hour)
+            time_input = self.time_var.get().strip()
+            login_time_24hr = parse_time_12hr(time_input)
         except ValueError:
-            messagebox.showerror("Validation Error", "Invalid time format. Use HH:MM:SS.")
+            messagebox.showerror("Validation Error", "Invalid time format. Use HH:MM AM/PM or H:MM AM/PM (e.g., 2:30 PM).")
             return
         
         # Get selected system
@@ -197,7 +199,7 @@ class StartSessionDialog:
                 date=datetime.now().strftime("%Y-%m-%d"),
                 customer_name=self.customer_var.get().strip(),
                 system_id=selected_system.id,
-                login_time=self.time_var.get(),
+                login_time=login_time_24hr,
                 hourly_rate=rate,
                 notes=notes
             )

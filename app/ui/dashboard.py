@@ -7,6 +7,7 @@ from app.ui.styles import COLORS, FONTS
 from app.services.system_service import SystemService
 from app.services.session_service import SessionService
 from app.db.connection import DatabaseConnection
+from app.utils.time_utils import format_time_12hr
 
 
 class Dashboard:

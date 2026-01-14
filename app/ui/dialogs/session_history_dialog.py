@@ -8,6 +8,7 @@ from typing import Optional, Callable
 from app.ui.styles import COLORS, FONTS
 from app.services.session_service import SessionService
 from app.db.connection import DatabaseConnection
+from app.utils.time_utils import format_time_12hr
 
 
 class SessionHistoryDialog:
@@ -112,26 +113,30 @@ class SessionHistoryDialog:
         # Create treeview for sessions
         self.sessions_tree = ttk.Treeview(
             table_frame,
-            columns=("date", "customer", "system", "duration", "rate", "extra", "total", "payment", "notes"),
+            columns=("date", "customer", "system", "login", "logout", "duration", "rate", "extra", "total", "payment", "notes"),
             height=15,
             show="headings"
         )
         
         # Define columns
-        self.sessions_tree.column("date", width=90, anchor=tk.CENTER)
-        self.sessions_tree.column("customer", width=120, anchor=tk.W)
-        self.sessions_tree.column("system", width=90, anchor=tk.CENTER)
-        self.sessions_tree.column("duration", width=70, anchor=tk.CENTER)
-        self.sessions_tree.column("rate", width=70, anchor=tk.CENTER)
-        self.sessions_tree.column("extra", width=70, anchor=tk.CENTER)
-        self.sessions_tree.column("total", width=80, anchor=tk.E)
-        self.sessions_tree.column("payment", width=90, anchor=tk.CENTER)
-        self.sessions_tree.column("notes", width=150, anchor=tk.W)
+        self.sessions_tree.column("date", width=75, anchor=tk.CENTER)
+        self.sessions_tree.column("customer", width=100, anchor=tk.W)
+        self.sessions_tree.column("system", width=75, anchor=tk.CENTER)
+        self.sessions_tree.column("login", width=75, anchor=tk.CENTER)
+        self.sessions_tree.column("logout", width=75, anchor=tk.CENTER)
+        self.sessions_tree.column("duration", width=65, anchor=tk.CENTER)
+        self.sessions_tree.column("rate", width=60, anchor=tk.CENTER)
+        self.sessions_tree.column("extra", width=60, anchor=tk.CENTER)
+        self.sessions_tree.column("total", width=70, anchor=tk.E)
+        self.sessions_tree.column("payment", width=75, anchor=tk.CENTER)
+        self.sessions_tree.column("notes", width=120, anchor=tk.W)
         
         # Define headings
         self.sessions_tree.heading("date", text="Date")
         self.sessions_tree.heading("customer", text="Customer")
         self.sessions_tree.heading("system", text="System")
+        self.sessions_tree.heading("login", text="Login")
+        self.sessions_tree.heading("logout", text="Logout")
         self.sessions_tree.heading("duration", text="Duration")
         self.sessions_tree.heading("rate", text="Rate")
         self.sessions_tree.heading("extra", text="Extra")
@@ -207,11 +212,15 @@ class SessionHistoryDialog:
             for session in sessions:
                 duration_str = f"{session.duration_minutes}m" if session.duration_minutes else "--"
                 payment_method = session.payment_status.replace("Paid-", "").replace("Pending", "Pending")
+                login_12hr = format_time_12hr(session.login_time) if session.login_time else "--"
+                logout_12hr = format_time_12hr(session.logout_time) if session.logout_time else "--"
                 
                 self.sessions_tree.insert("", tk.END, values=(
                     session.date,
                     session.customer_name,
                     session.system_name,
+                    login_12hr,
+                    logout_12hr,
                     duration_str,
                     f"₹{session.hourly_rate:.0f}",
                     f"₹{session.extra_charges:.2f}" if session.extra_charges else "₹0.00",
@@ -263,7 +272,7 @@ class SessionHistoryDialog:
                 
                 # Write header
                 writer.writerow([
-                    "Date", "Customer", "System", "Duration (min)", "Hourly Rate",
+                    "Date", "Customer", "System", "Login (12hr)", "Logout (12hr)", "Duration (min)", "Hourly Rate",
                     "Extra Charges", "Total Due", "Payment Method", "Notes"
                 ])
                 
