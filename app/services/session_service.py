@@ -6,6 +6,11 @@ from datetime import datetime, time
 from app.db.connection import DatabaseConnection
 
 
+class SessionError(Exception):
+    """Custom exception for session-related errors."""
+    pass
+
+
 @dataclass
 class Session:
     """Represents a gaming session."""
@@ -62,13 +67,52 @@ class SessionService:
         
         Returns:
             ID of created session
+        
+        Raises:
+            SessionError: If validation fails
         """
-        return self.db.insert(
-            """INSERT INTO sessions 
-               (date, customer_name, system_id, login_time, hourly_rate, notes, payment_status)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (date, customer_name, system_id, login_time, hourly_rate, notes, "Pending")
-        )
+        # Validate customer name
+        if not customer_name or not customer_name.strip():
+            raise SessionError("Customer name cannot be empty.")
+        
+        customer_name = customer_name.strip()
+        if len(customer_name) > 100:
+            raise SessionError("Customer name exceeds maximum length (100 characters).")
+        
+        # Validate system ID
+        if not isinstance(system_id, int) or system_id <= 0:
+            raise SessionError("Invalid system ID.")
+        
+        # Validate login time format
+        if not login_time or not isinstance(login_time, str):
+            raise SessionError("Invalid login time format.")
+        
+        try:
+            # Validate time format (HH:MM:SS)
+            datetime.strptime(login_time, "%H:%M:%S")
+        except ValueError:
+            raise SessionError(f"Invalid login time format. Expected HH:MM:SS, got: {login_time}")
+        
+        # Validate hourly rate
+        if not isinstance(hourly_rate, (int, float)) or hourly_rate <= 0:
+            raise SessionError(f"Invalid hourly rate: {hourly_rate}. Rate must be greater than 0.")
+        
+        if hourly_rate > 10000:
+            raise SessionError("Hourly rate seems unusually high. Please verify.")
+        
+        # Validate notes length if provided
+        if notes and len(notes) > 500:
+            raise SessionError("Notes exceed maximum length (500 characters).")
+        
+        try:
+            return self.db.insert(
+                """INSERT INTO sessions 
+                   (date, customer_name, system_id, login_time, hourly_rate, notes, payment_status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (date, customer_name, system_id, login_time, hourly_rate, notes, "Pending")
+            )
+        except Exception as e:
+            raise SessionError(f"Failed to create session in database: {str(e)}")
     
     def end_session(
         self,
@@ -92,45 +136,80 @@ class SessionService:
             True if successful, False otherwise
         
         Raises:
-            ValueError: If payment_status is invalid
+            SessionError: If validation fails
         """
-        # Validate payment_status
+        # Validate session ID
+        if not isinstance(session_id, int) or session_id <= 0:
+            raise SessionError("Invalid session ID.")
+        
+        # Validate logout time format
+        if not logout_time or not isinstance(logout_time, str):
+            raise SessionError("Invalid logout time format.")
+        
+        try:
+            # Validate time format (HH:MM:SS)
+            datetime.strptime(logout_time, "%H:%M:%S")
+        except ValueError:
+            raise SessionError(f"Invalid logout time format. Expected HH:MM:SS, got: {logout_time}")
+        
+        # Validate extra charges
+        if not isinstance(extra_charges, (int, float)) or extra_charges < 0:
+            raise SessionError(f"Invalid extra charges: {extra_charges}. Must be >= 0.")
+        
+        if extra_charges > 100000:
+            raise SessionError("Extra charges amount seems unusually high. Please verify.")
+        
+        # Validate payment status
         valid_statuses = ["Paid-Cash", "Paid-Online", "Paid-Mixed", "Pending"]
         if payment_status not in valid_statuses:
-            raise ValueError(f"Invalid payment status: {payment_status}")
+            raise SessionError(f"Invalid payment status: {payment_status}")
         
-        # Fetch session to calculate duration
-        session = self.get_session_by_id(session_id)
-        if not session:
-            return False
+        # Validate notes length if provided
+        if notes and len(notes) > 500:
+            raise SessionError("Notes exceed maximum length (500 characters).")
         
-        # Calculate duration in minutes
-        login = datetime.strptime(session.login_time, "%H:%M:%S").time()
-        logout = datetime.strptime(logout_time, "%H:%M:%S").time()
+        try:
+            # Fetch session to calculate duration
+            session = self.get_session_by_id(session_id)
+            if not session:
+                raise SessionError(f"Session {session_id} not found.")
+            
+            # Calculate duration in minutes
+            login = datetime.strptime(session.login_time, "%H:%M:%S").time()
+            logout = datetime.strptime(logout_time, "%H:%M:%S").time()
+            
+            # Handle overnight sessions (simple case for now)
+            login_minutes = login.hour * 60 + login.minute
+            logout_minutes = logout.hour * 60 + logout.minute
+            
+            if logout_minutes < login_minutes:
+                # Overnight session
+                duration_minutes = (24 * 60 - login_minutes) + logout_minutes
+            else:
+                duration_minutes = logout_minutes - login_minutes
+            
+            # Ensure duration is positive
+            if duration_minutes <= 0:
+                raise SessionError("Logout time must be after login time.")
+            
+            # Calculate total due
+            hours = duration_minutes / 60
+            total_due = (session.hourly_rate * hours) + extra_charges
+            
+            # Update session with payment info
+            rows_affected = self.db.update(
+                """UPDATE sessions 
+                   SET logout_time = ?, duration_minutes = ?, extra_charges = ?, total_due = ?, 
+                       payment_status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (logout_time, duration_minutes, extra_charges, total_due, payment_status, notes, session_id)
+            )
+            return rows_affected > 0
         
-        # Handle overnight sessions (simple case for now)
-        login_minutes = login.hour * 60 + login.minute
-        logout_minutes = logout.hour * 60 + logout.minute
-        
-        if logout_minutes < login_minutes:
-            # Overnight session
-            duration_minutes = (24 * 60 - login_minutes) + logout_minutes
-        else:
-            duration_minutes = logout_minutes - login_minutes
-        
-        # Calculate total due
-        hours = duration_minutes / 60
-        total_due = (session.hourly_rate * hours) + extra_charges
-        
-        # Update session with payment info
-        rows_affected = self.db.update(
-            """UPDATE sessions 
-               SET logout_time = ?, duration_minutes = ?, extra_charges = ?, total_due = ?, 
-                   payment_status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
-               WHERE id = ?""",
-            (logout_time, duration_minutes, extra_charges, total_due, payment_status, notes, session_id)
-        )
-        return rows_affected > 0
+        except SessionError:
+            raise
+        except Exception as e:
+            raise SessionError(f"Failed to end session in database: {str(e)}")
     
     def get_session_by_id(self, session_id: int) -> Optional[Session]:
         """

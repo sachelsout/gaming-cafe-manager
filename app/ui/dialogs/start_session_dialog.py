@@ -9,6 +9,9 @@ from app.services.system_service import SystemService
 from app.services.session_service import SessionService
 from app.db.connection import DatabaseConnection
 from app.utils.time_utils import get_current_time_12hr, parse_time_12hr
+from app.utils.validators import validate_customer_name, validate_time_format, validate_hourly_rate, validate_notes
+from app.ui.dialogs.error_dialog import show_validation_error, show_error, show_success
+from app.services.session_service import SessionError
 
 
 class StartSessionDialog:
@@ -146,29 +149,39 @@ class StartSessionDialog:
     
     def _start_session(self):
         """Create the session and close dialog."""
-        # Validate inputs
+        # Validate system selection
         if not self.system_var.get():
-            messagebox.showerror("Validation Error", "Please select a system.")
+            show_validation_error(self.dialog, "Please select a system.")
             return
         
-        if not self.customer_var.get().strip():
-            messagebox.showerror("Validation Error", "Please enter a customer name.")
+        # Validate customer name
+        customer_name = self.customer_var.get()
+        is_valid, error_msg = validate_customer_name(customer_name)
+        if not is_valid:
+            show_validation_error(self.dialog, error_msg)
+            return
+        
+        # Validate hourly rate
+        rate_str = self.rate_var.get()
+        is_valid, error_msg = validate_hourly_rate(rate_str)
+        if not is_valid:
+            show_validation_error(self.dialog, error_msg)
+            return
+        
+        rate = float(rate_str)
+        
+        # Validate time format
+        time_input = self.time_var.get()
+        is_valid, error_msg = validate_time_format(time_input)
+        if not is_valid:
+            show_validation_error(self.dialog, error_msg)
             return
         
         try:
-            rate = float(self.rate_var.get())
-            if rate <= 0:
-                raise ValueError("Rate must be greater than 0")
-        except ValueError:
-            messagebox.showerror("Validation Error", "Please enter a valid hourly rate (number > 0).")
-            return
-        
-        try:
-            # Parse and validate time (accept 12-hour format and convert to 24-hour)
-            time_input = self.time_var.get().strip()
+            # Parse time from 12-hour to 24-hour format
             login_time_24hr = parse_time_12hr(time_input)
-        except ValueError:
-            messagebox.showerror("Validation Error", "Invalid time format. Use HH:MM AM/PM or H:MM AM/PM (e.g., 2:30 PM).")
+        except ValueError as e:
+            show_validation_error(self.dialog, f"Invalid time: {str(e)}")
             return
         
         # Get selected system
@@ -181,23 +194,34 @@ class StartSessionDialog:
                 break
         
         if not selected_system:
-            messagebox.showerror("Error", "Selected system not found.")
+            show_error(self.dialog, "Error", "Selected system not found.")
             return
         
         # Double-check system is still available (prevent race condition)
-        current_system = self.system_service.get_system_by_id(selected_system.id)
-        if current_system and current_system.availability != "Available":
-            messagebox.showerror("System In Use", f"{selected_system.system_name} is no longer available.")
+        try:
+            current_system = self.system_service.get_system_by_id(selected_system.id)
+            if current_system and current_system.availability != "Available":
+                show_error(self.dialog, "System In Use", 
+                          f"{selected_system.system_name} is no longer available.")
+                return
+        except Exception as e:
+            show_error(self.dialog, "Database Error", 
+                      f"Failed to check system availability: {str(e)}")
             return
         
         try:
-            # Get notes
+            # Validate notes if provided
             notes = self.notes_text.get("1.0", tk.END).strip() or None
+            if notes:
+                is_valid, error_msg = validate_notes(notes)
+                if not is_valid:
+                    show_validation_error(self.dialog, error_msg)
+                    return
             
             # Create session
             session_id = self.session_service.create_session(
                 date=datetime.now().strftime("%Y-%m-%d"),
-                customer_name=self.customer_var.get().strip(),
+                customer_name=customer_name.strip(),
                 system_id=selected_system.id,
                 login_time=login_time_24hr,
                 hourly_rate=rate,
@@ -207,7 +231,8 @@ class StartSessionDialog:
             # Mark system as in use
             self.system_service.set_system_availability(selected_system.id, "In Use")
             
-            messagebox.showinfo("Success", f"Session started for {self.customer_var.get()} on {selected_system.system_name}")
+            show_success(self.dialog, "Session Started", 
+                        f"Session started for {customer_name} on {selected_system.system_name}")
             
             # Call success callback if provided
             if self.on_success:
@@ -215,5 +240,8 @@ class StartSessionDialog:
             
             self.dialog.destroy()
             
+        except SessionError as e:
+            show_validation_error(self.dialog, str(e))
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to start session: {str(e)}")
+            show_error(self.dialog, "Failed to Start Session", 
+                      f"An error occurred while starting the session: {str(e)}")

@@ -9,6 +9,9 @@ from app.services.session_service import SessionService
 from app.services.system_service import SystemService
 from app.utils.time_utils import calculate_duration_minutes, format_duration, calculate_bill, get_current_time_12hr, format_time_12hr, parse_time_12hr
 from app.db.connection import DatabaseConnection
+from app.utils.validators import validate_time_format, validate_hourly_rate, validate_extra_charges, validate_notes
+from app.ui.dialogs.error_dialog import show_validation_error, show_error, show_success
+from app.services.session_service import SessionError
 
 
 class EndSessionDialog:
@@ -254,47 +257,69 @@ class EndSessionDialog:
     
     def _end_session(self):
         """End the session and save to database."""
-        # Validate logout time
-        try:
-            logout_time_input = self.logout_time_var.get()
-            logout_time_24hr = parse_time_12hr(logout_time_input)
-        except ValueError:
-            messagebox.showerror("Validation Error", "Invalid logout time format. Use HH:MM AM/PM or H:MM AM/PM (e.g., 2:30 PM).")
+        # Validate logout time format
+        logout_time_input = self.logout_time_var.get()
+        is_valid, error_msg = validate_time_format(logout_time_input)
+        if not is_valid:
+            show_validation_error(self.dialog, error_msg)
             return
         
-        # Validate rate
         try:
-            hourly_rate = float(self.rate_var.get())
-            if hourly_rate < 0:
-                raise ValueError()
-        except ValueError:
-            messagebox.showerror("Validation Error", "Please enter a valid hourly rate (>= 0).")
+            logout_time_24hr = parse_time_12hr(logout_time_input)
+        except ValueError as e:
+            show_validation_error(self.dialog, f"Invalid logout time: {str(e)}")
             return
+        
+        # Validate hourly rate
+        rate_str = self.rate_var.get()
+        is_valid, error_msg = validate_hourly_rate(rate_str)
+        if not is_valid:
+            show_validation_error(self.dialog, error_msg)
+            return
+        
+        hourly_rate = float(rate_str)
         
         # Validate extra charges
-        try:
-            extra_charges = float(self.extra_charges_var.get())
-            if extra_charges < 0:
-                raise ValueError()
-        except ValueError:
-            messagebox.showerror("Validation Error", "Extra charges must be >= 0.")
+        charges_str = self.extra_charges_var.get()
+        is_valid, error_msg = validate_extra_charges(charges_str)
+        if not is_valid:
+            show_validation_error(self.dialog, error_msg)
             return
+        
+        extra_charges = float(charges_str)
+        
+        # Validate notes if provided
+        notes = self.notes_var.get()
+        if notes:
+            is_valid, error_msg = validate_notes(notes)
+            if not is_valid:
+                show_validation_error(self.dialog, error_msg)
+                return
         
         try:
             # Calculate final duration
             duration_minutes = calculate_duration_minutes(self.session.login_time, logout_time_24hr)
             
-            # Update session with new rate if changed
-            if float(self.rate_var.get()) != self.session.hourly_rate:
-                # Update the session's hourly rate in the database
-                self.db.update(
-                    "UPDATE sessions SET hourly_rate = ? WHERE id = ?",
-                    (hourly_rate, self.session_id)
-                )
+            # Ensure duration is positive
+            if duration_minutes <= 0:
+                show_validation_error(self.dialog, 
+                                     "Logout time must be after login time.")
+                return
             
-            # Get payment method and notes
+            # Update session with new rate if changed
+            if hourly_rate != self.session.hourly_rate:
+                try:
+                    self.db.update(
+                        "UPDATE sessions SET hourly_rate = ? WHERE id = ?",
+                        (hourly_rate, self.session_id)
+                    )
+                except Exception as e:
+                    show_error(self.dialog, "Database Error", 
+                              f"Failed to update hourly rate: {str(e)}")
+                    return
+            
+            # Get payment method
             payment_status = self.payment_method_var.get()
-            notes = self.notes_var.get()
             
             # End the session (calculates duration and total, saves payment info)
             success = self.session_service.end_session(
@@ -306,23 +331,29 @@ class EndSessionDialog:
             )
             
             if not success:
-                messagebox.showerror("Error", "Failed to end session.")
+                show_error(self.dialog, "Failed to End Session", 
+                          "The session could not be saved. Please try again.")
                 return
             
             # Mark system as available
-            self.system_service.set_system_availability(self.session.system_id, "Available")
+            try:
+                self.system_service.set_system_availability(self.session.system_id, "Available")
+            except Exception as e:
+                show_error(self.dialog, "System Update Error", 
+                          f"Session ended but system status could not be updated: {str(e)}")
+                return
             
-            # Show confirmation
+            # Show confirmation with formatted amounts
             total = calculate_bill(duration_minutes, hourly_rate, extra_charges)
-            messagebox.showinfo(
-                "Session Ended",
-                f"Session ended for {self.session.customer_name}\n\n"
-                f"Duration: {format_duration(duration_minutes)}\n"
-                f"Base: {calculate_bill(duration_minutes, hourly_rate, 0.0):.2f}\n"
-                f"Extra: {extra_charges:.2f}\n"
-                f"Total: {total:.2f}\n"
-                f"Payment: {payment_status}"
-            )
+            base = calculate_bill(duration_minutes, hourly_rate, 0.0)
+            
+            show_success(self.dialog, "Session Ended",
+                        f"Session ended for {self.session.customer_name}\n\n"
+                        f"Duration: {format_duration(duration_minutes)}\n"
+                        f"Base: ₹{base:.2f}\n"
+                        f"Extra: ₹{extra_charges:.2f}\n"
+                        f"Total: ₹{total:.2f}\n"
+                        f"Payment: {payment_status}")
             
             # Call success callback
             if self.on_success:
@@ -330,5 +361,8 @@ class EndSessionDialog:
             
             self.dialog.destroy()
         
+        except SessionError as e:
+            show_validation_error(self.dialog, str(e))
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to end session: {str(e)}")
+            show_error(self.dialog, "Failed to End Session",
+                      f"An unexpected error occurred: {str(e)}")
