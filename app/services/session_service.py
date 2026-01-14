@@ -57,6 +57,53 @@ class SessionService:
         """
         self.db = db
     
+    def create_session(
+        self,
+        date: str,
+        customer_name: str,
+        system_id: int,
+        login_time: str,
+        hourly_rate: float,
+        notes: Optional[str] = None
+    ) -> int:
+        """
+        DEPRECATED: Compatibility wrapper for old session creation.
+        
+        This method creates a PLANNED session and immediately starts it (transitions to ACTIVE).
+        Use create_prepaid_session() followed by start_session() for better control.
+        
+        Args:
+            date: Session date (YYYY-MM-DD)
+            customer_name: Customer name
+            system_id: ID of the gaming system
+            login_time: Login time (HH:MM:SS) - used as planned start time
+            hourly_rate: Hourly rate for this session
+            notes: Optional notes
+        
+        Returns:
+            ID of created and started session
+        
+        Raises:
+            SessionError: If validation fails
+        """
+        # Create a PLANNED session with reasonable defaults
+        # Use hourly_rate * 1 hour as default planned duration and payment
+        session_id = self.create_prepaid_session(
+            date=date,
+            customer_name=customer_name,
+            system_id=system_id,
+            planned_duration_min=60,  # Default 1 hour
+            hourly_rate=hourly_rate,
+            payment_method="Cash",  # Default to Cash
+            extra_charges=0.0,
+            notes=notes
+        )
+        
+        # Immediately start the session
+        self.start_session(session_id, login_time)
+        
+        return session_id
+    
     def create_prepaid_session(
         self,
         date: str,
