@@ -2,26 +2,31 @@
 
 from pathlib import Path
 from app.db.connection import DatabaseConnection
+from app.db.path_manager import DatabasePathManager, DatabaseBackupManager
 
 
-# Default database location
-DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "cafe.db"
+# Get database path from path manager (uses AppData directory)
+def get_default_db_path():
+    """Get default database path from path manager."""
+    return DatabasePathManager.get_database_path("cafe.db")
 
 
-def get_database(db_path: Path = DEFAULT_DB_PATH) -> DatabaseConnection:
+def get_database(db_path: Path = None) -> DatabaseConnection:
     """
     Get or create the database connection.
     
     Args:
-        db_path: Path to the database file (defaults to data/cafe.db)
+        db_path: Path to the database file (defaults to AppData directory)
     
     Returns:
         DatabaseConnection instance
     """
+    if db_path is None:
+        db_path = get_default_db_path()
     return DatabaseConnection(db_path)
 
 
-def initialize_database(db_path: Path = DEFAULT_DB_PATH) -> DatabaseConnection:
+def initialize_database(db_path: Path = None) -> DatabaseConnection:
     """
     Initialize the database by creating tables and default data if needed.
     
@@ -29,9 +34,10 @@ def initialize_database(db_path: Path = DEFAULT_DB_PATH) -> DatabaseConnection:
     1. Creates the database file if it doesn't exist
     2. Executes the schema to create tables if they don't exist
     3. Inserts default systems if the systems table is empty
+    4. Ensures data directory is created in a safe location (outside executable)
     
     Args:
-        db_path: Path to the database file (defaults to data/cafe.db)
+        db_path: Path to the database file (defaults to AppData directory)
     
     Returns:
         DatabaseConnection instance
@@ -39,8 +45,11 @@ def initialize_database(db_path: Path = DEFAULT_DB_PATH) -> DatabaseConnection:
     Raises:
         RuntimeError: If schema execution fails
     """
+    if db_path is None:
+        db_path = get_default_db_path()
+    
     try:
-        # Get database connection
+        # Get database connection (this creates the directory if needed)
         db = get_database(db_path)
         db.connect()
         

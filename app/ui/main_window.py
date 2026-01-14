@@ -2,6 +2,7 @@
 
 import tkinter as tk
 from tkinter import ttk
+from pathlib import Path
 from app.ui.styles import COLORS, configure_dark_theme
 from app.ui.dashboard import Dashboard
 from app.db.connection import DatabaseConnection
@@ -10,16 +11,18 @@ from app.db.connection import DatabaseConnection
 class MainWindow:
     """Main application window for Gaming Cafe Manager."""
     
-    def __init__(self, root, db: DatabaseConnection):
+    def __init__(self, root, db: DatabaseConnection, db_path: Path = None):
         """
         Initialize the main window.
         
         Args:
             root: tkinter root window
             db: DatabaseConnection instance
+            db_path: Path to the database file (for backup functionality)
         """
         self.root = root
         self.db = db
+        self.db_path = db_path or db.db_path
         self._setup_theme()
         self._setup_ui()
     
@@ -59,6 +62,13 @@ class MainWindow:
         menubar.add_cascade(label="Reports", menu=reports_menu)
         reports_menu.add_command(label="Session History & Revenue", command=self._open_session_history)
         
+        # Data menu (for backup/restore)
+        data_menu = tk.Menu(menubar, bg=COLORS["bg_card"], fg=COLORS["text_primary"], tearoff=0)
+        menubar.add_cascade(label="Data", menu=data_menu)
+        data_menu.add_command(label="Backup & Restore Database", command=self._open_backup_manager)
+        data_menu.add_separator()
+        data_menu.add_command(label="Create Quick Backup", command=self._create_quick_backup)
+        
         # Help menu
         help_menu = tk.Menu(menubar, bg=COLORS["bg_card"], fg=COLORS["text_primary"], tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
@@ -78,3 +88,23 @@ class MainWindow:
         """Open the session history and revenue summary dialog."""
         from app.ui.dialogs.session_history_dialog import SessionHistoryDialog
         SessionHistoryDialog(self.root, self.db)
+    
+    def _open_backup_manager(self):
+        """Open the backup manager dialog."""
+        from app.ui.dialogs.backup_dialog import BackupManagerDialog
+        BackupManagerDialog(self.root, self.db_path)
+    
+    def _create_quick_backup(self):
+        """Create a quick backup without opening the dialog."""
+        from tkinter import messagebox
+        from app.db.path_manager import DatabaseBackupManager
+        
+        try:
+            backup_manager = DatabaseBackupManager(self.db_path)
+            backup_path = backup_manager.create_backup(description="Quick backup via menu")
+            messagebox.showinfo(
+                "Backup Created",
+                f"Backup saved successfully:\n{backup_path.name}"
+            )
+        except Exception as e:
+            messagebox.showerror("Backup Failed", f"Failed to create backup:\n{str(e)}")

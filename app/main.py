@@ -22,6 +22,7 @@ def main():
     """Initialize and start the application."""
     try:
         # Initialize database (creates tables if first run)
+        # Database is stored in user's AppData directory
         db = initialize_database()
         
         # Create root window
@@ -30,8 +31,8 @@ def main():
         root.geometry("1000x700")
         root.minsize(800, 600)
         
-        # Initialize main UI with database connection
-        app = MainWindow(root, db)
+        # Initialize main UI with database connection and database path
+        app = MainWindow(root, db, db.db_path)
         
         # Start event loop
         root.mainloop()
