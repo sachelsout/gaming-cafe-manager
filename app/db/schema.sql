@@ -11,19 +11,24 @@ CREATE TABLE IF NOT EXISTS systems (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Gaming sessions
+-- Gaming sessions with prepaid-first model
+-- Session states: PLANNED -> ACTIVE -> COMPLETED
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date DATE NOT NULL,
     customer_name TEXT NOT NULL,
     system_id INTEGER NOT NULL,
-    login_time TIME NOT NULL,
+    session_state TEXT DEFAULT 'PLANNED' CHECK(session_state IN ('PLANNED', 'ACTIVE', 'COMPLETED')),
+    planned_duration_min INTEGER NOT NULL,
+    login_time TIME,
     logout_time TIME,
-    duration_minutes INTEGER,
+    actual_duration_min INTEGER,
     hourly_rate REAL NOT NULL,
+    paid_amount REAL NOT NULL,
     extra_charges REAL DEFAULT 0.0,
-    total_due REAL,
-    payment_status TEXT CHECK(payment_status IN ('Paid-Cash', 'Paid-Online', 'Paid-Mixed', 'Pending')),
+    total_due REAL NOT NULL,
+    payment_method TEXT NOT NULL CHECK(payment_method IN ('Cash', 'Online', 'Mixed')),
+    payment_status TEXT DEFAULT 'PAID' CHECK(payment_status IN ('PAID', 'Pending', 'Refunded')),
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

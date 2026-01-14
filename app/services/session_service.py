@@ -13,24 +13,36 @@ class SessionError(Exception):
 
 @dataclass
 class Session:
-    """Represents a gaming session."""
+    """Represents a gaming session with prepaid-first workflow."""
     id: int
     date: str
     customer_name: str
     system_id: int
     system_name: str
-    login_time: str
-    logout_time: Optional[str]
-    duration_minutes: Optional[int]
+    session_state: str  # PLANNED, ACTIVE, or COMPLETED
+    planned_duration_min: int
+    login_time: Optional[str]  # None until ACTIVE
+    logout_time: Optional[str]  # None until COMPLETED
+    actual_duration_min: Optional[int]  # Calculated when COMPLETED
     hourly_rate: float
+    paid_amount: float  # Amount paid upfront
     extra_charges: float
-    total_due: Optional[float]
-    payment_status: str
+    total_due: float  # Total including extras
+    payment_method: str  # Cash, Online, Mixed
+    payment_status: str  # PAID, Pending, Refunded
     notes: Optional[str]
     
+    def is_planned(self) -> bool:
+        """Check if session is in PLANNED state (not started yet)."""
+        return self.session_state == "PLANNED"
+    
     def is_active(self) -> bool:
-        """Check if session is currently active (no logout time)."""
-        return self.logout_time is None
+        """Check if session is currently active (started but not ended)."""
+        return self.session_state == "ACTIVE"
+    
+    def is_completed(self) -> bool:
+        """Check if session is completed."""
+        return self.session_state == "COMPLETED"
 
 
 class SessionService:
@@ -45,24 +57,33 @@ class SessionService:
         """
         self.db = db
     
-    def create_session(
+    def create_prepaid_session(
         self,
         date: str,
         customer_name: str,
         system_id: int,
-        login_time: str,
+        planned_duration_min: int,
         hourly_rate: float,
+        payment_method: str,
+        extra_charges: float = 0.0,
         notes: Optional[str] = None
     ) -> int:
         """
-        Create a new gaming session.
+        Create a new prepaid session in PLANNED state.
+        
+        This is the new prepaid-first workflow:
+        1. Create session with planned duration and payment
+        2. Start session when customer is ready
+        3. End session after customer finishes
         
         Args:
             date: Session date (YYYY-MM-DD)
             customer_name: Customer name
             system_id: ID of the gaming system
-            login_time: Login time (HH:MM:SS)
+            planned_duration_min: Planned duration in minutes
             hourly_rate: Hourly rate for this session
+            payment_method: 'Cash', 'Online', or 'Mixed'
+            extra_charges: Optional extra charges (added to total)
             notes: Optional notes
         
         Returns:
@@ -83,15 +104,12 @@ class SessionService:
         if not isinstance(system_id, int) or system_id <= 0:
             raise SessionError("Invalid system ID.")
         
-        # Validate login time format
-        if not login_time or not isinstance(login_time, str):
-            raise SessionError("Invalid login time format.")
+        # Validate planned duration
+        if not isinstance(planned_duration_min, int) or planned_duration_min <= 0:
+            raise SessionError("Planned duration must be a positive integer (minutes).")
         
-        try:
-            # Validate time format (HH:MM:SS)
-            datetime.strptime(login_time, "%H:%M:%S")
-        except ValueError:
-            raise SessionError(f"Invalid login time format. Expected HH:MM:SS, got: {login_time}")
+        if planned_duration_min > 1440:  # Max 24 hours
+            raise SessionError("Planned duration cannot exceed 24 hours (1440 minutes).")
         
         # Validate hourly rate
         if not isinstance(hourly_rate, (int, float)) or hourly_rate <= 0:
@@ -100,37 +118,110 @@ class SessionService:
         if hourly_rate > 10000:
             raise SessionError("Hourly rate seems unusually high. Please verify.")
         
+        # Validate payment method
+        valid_methods = ["Cash", "Online", "Mixed"]
+        if payment_method not in valid_methods:
+            raise SessionError(f"Invalid payment method. Must be one of: {', '.join(valid_methods)}")
+        
+        # Validate extra charges
+        if not isinstance(extra_charges, (int, float)) or extra_charges < 0:
+            raise SessionError("Extra charges must be non-negative.")
+        
         # Validate notes length if provided
         if notes and len(notes) > 500:
             raise SessionError("Notes exceed maximum length (500 characters).")
         
         try:
+            # Calculate paid amount (hourly_rate * (duration_min / 60) + extra_charges)
+            hours = planned_duration_min / 60.0
+            paid_amount = (hourly_rate * hours) + extra_charges
+            
             return self.db.insert(
                 """INSERT INTO sessions 
-                   (date, customer_name, system_id, login_time, hourly_rate, notes, payment_status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (date, customer_name, system_id, login_time, hourly_rate, notes, "Pending")
+                   (date, customer_name, system_id, session_state, planned_duration_min, 
+                    hourly_rate, paid_amount, extra_charges, total_due, payment_method, 
+                    payment_status, notes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (date, customer_name, system_id, "PLANNED", planned_duration_min,
+                 hourly_rate, paid_amount, extra_charges, paid_amount, payment_method,
+                 "PAID", notes)
             )
         except Exception as e:
-            raise SessionError(f"Failed to create session in database: {str(e)}")
+            raise SessionError(f"Failed to create prepaid session: {str(e)}")
+    
+    def start_session(self, session_id: int, login_time: str) -> bool:
+        """
+        Start a PLANNED session (transition to ACTIVE).
+        
+        Records the login_time when customer begins playing.
+        
+        Args:
+            session_id: ID of session to start
+            login_time: Login time (HH:MM:SS)
+        
+        Returns:
+            True if successful, False otherwise
+        
+        Raises:
+            SessionError: If validation fails
+        """
+        # Validate session ID
+        if not isinstance(session_id, int) or session_id <= 0:
+            raise SessionError("Invalid session ID.")
+        
+        # Validate login time format
+        if not login_time or not isinstance(login_time, str):
+            raise SessionError("Invalid login time format.")
+        
+        try:
+            datetime.strptime(login_time, "%H:%M:%S")
+        except ValueError:
+            raise SessionError(f"Invalid login time format. Expected HH:MM:SS, got: {login_time}")
+        
+        try:
+            # Fetch session
+            session = self.get_session_by_id(session_id)
+            if not session:
+                raise SessionError(f"Session {session_id} not found.")
+            
+            if session.session_state != "PLANNED":
+                raise SessionError(f"Can only start PLANNED sessions. Current state: {session.session_state}")
+            
+            # Update session: set to ACTIVE and record login_time
+            rows_affected = self.db.update(
+                """UPDATE sessions 
+                   SET session_state = 'ACTIVE', login_time = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (login_time, session_id)
+            )
+            return rows_affected > 0
+        
+        except SessionError:
+            raise
+        except Exception as e:
+            raise SessionError(f"Failed to start session: {str(e)}")
     
     def end_session(
         self,
         session_id: int,
         logout_time: str,
         extra_charges: float = 0.0,
-        payment_status: str = "Pending",
         notes: str = ""
     ) -> bool:
         """
-        End a gaming session and calculate totals.
+        End an ACTIVE session (transition to COMPLETED).
+        
+        In the prepaid model, payment is already recorded. This method:
+        - Records logout_time
+        - Calculates actual_duration_min
+        - Compares actual vs planned duration (for future refund/extra charge handling)
+        - Marks session as COMPLETED
         
         Args:
             session_id: ID of session to end
             logout_time: Logout time (HH:MM:SS)
-            extra_charges: Optional extra charges
-            payment_status: Payment method ('Paid-Cash', 'Paid-Online', 'Paid-Mixed', or 'Pending')
-            notes: Optional notes (booking, payment split, etc.)
+            extra_charges: Optional additional charges (default 0)
+            notes: Optional notes
         
         Returns:
             True if successful, False otherwise
@@ -159,57 +250,59 @@ class SessionService:
         if extra_charges > 100000:
             raise SessionError("Extra charges amount seems unusually high. Please verify.")
         
-        # Validate payment status
-        valid_statuses = ["Paid-Cash", "Paid-Online", "Paid-Mixed", "Pending"]
-        if payment_status not in valid_statuses:
-            raise SessionError(f"Invalid payment status: {payment_status}")
-        
         # Validate notes length if provided
         if notes and len(notes) > 500:
             raise SessionError("Notes exceed maximum length (500 characters).")
         
         try:
-            # Fetch session to calculate duration
+            # Fetch session
             session = self.get_session_by_id(session_id)
             if not session:
                 raise SessionError(f"Session {session_id} not found.")
             
-            # Calculate duration in minutes
+            # Verify session is in ACTIVE state
+            if session.session_state != "ACTIVE":
+                raise SessionError(f"Can only end ACTIVE sessions. Current state: {session.session_state}")
+            
+            # Verify login_time exists
+            if not session.login_time:
+                raise SessionError(f"Session {session_id} has no login time recorded.")
+            
+            # Calculate actual duration in minutes
             login = datetime.strptime(session.login_time, "%H:%M:%S").time()
             logout = datetime.strptime(logout_time, "%H:%M:%S").time()
             
-            # Handle overnight sessions (simple case for now)
+            # Handle overnight sessions
             login_minutes = login.hour * 60 + login.minute
             logout_minutes = logout.hour * 60 + logout.minute
             
             if logout_minutes < login_minutes:
                 # Overnight session
-                duration_minutes = (24 * 60 - login_minutes) + logout_minutes
+                actual_duration_min = (24 * 60 - login_minutes) + logout_minutes
             else:
-                duration_minutes = logout_minutes - login_minutes
+                actual_duration_min = logout_minutes - login_minutes
             
             # Ensure duration is positive
-            if duration_minutes <= 0:
+            if actual_duration_min <= 0:
                 raise SessionError("Logout time must be after login time.")
             
-            # Calculate total due
-            hours = duration_minutes / 60
-            total_due = (session.hourly_rate * hours) + extra_charges
+            # Calculate new total_due if there are extra charges
+            new_total_due = session.paid_amount + extra_charges
             
-            # Update session with payment info
+            # Update session: transition to COMPLETED, record logout_time and actual duration
             rows_affected = self.db.update(
                 """UPDATE sessions 
-                   SET logout_time = ?, duration_minutes = ?, extra_charges = ?, total_due = ?, 
-                       payment_status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                   SET session_state = 'COMPLETED', logout_time = ?, actual_duration_min = ?, 
+                       extra_charges = ?, total_due = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
                    WHERE id = ?""",
-                (logout_time, duration_minutes, extra_charges, total_due, payment_status, notes, session_id)
+                (logout_time, actual_duration_min, extra_charges, new_total_due, notes, session_id)
             )
             return rows_affected > 0
         
         except SessionError:
             raise
         except Exception as e:
-            raise SessionError(f"Failed to end session in database: {str(e)}")
+            raise SessionError(f"Failed to end session: {str(e)}")
     
     def get_session_by_id(self, session_id: int) -> Optional[Session]:
         """
@@ -223,29 +316,32 @@ class SessionService:
         """
         row = self.db.fetch_one(
             """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
-                      s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
-                      s.extra_charges, s.total_due, s.payment_status, s.notes
+                      s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
+                      s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
+                      s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
                JOIN systems sy ON s.system_id = sy.id
                WHERE s.id = ?""",
             (session_id,)
         )
         return self._row_to_session(row) if row else None
+        return self._row_to_session(row) if row else None
     
     def get_active_sessions(self) -> List[Session]:
         """
-        Get all currently active sessions (no logout time).
+        Get all currently active sessions (ACTIVE state).
         
         Returns:
             List of active Session objects
         """
         rows = self.db.fetch_all(
             """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
-                      s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
-                      s.extra_charges, s.total_due, s.payment_status, s.notes
+                      s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
+                      s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
+                      s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
                JOIN systems sy ON s.system_id = sy.id
-               WHERE s.logout_time IS NULL
+               WHERE s.session_state = 'ACTIVE'
                ORDER BY s.login_time DESC"""
         )
         return [self._row_to_session(row) for row in rows]
@@ -262,8 +358,9 @@ class SessionService:
         """
         rows = self.db.fetch_all(
             """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
-                      s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
-                      s.extra_charges, s.total_due, s.payment_status, s.notes
+                      s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
+                      s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
+                      s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
                JOIN systems sy ON s.system_id = sy.id
                WHERE s.date = ?
@@ -274,15 +371,16 @@ class SessionService:
     
     def get_pending_sessions(self) -> List[Session]:
         """
-        Get all sessions with pending payment.
+        Get all sessions with pending payment (payment_status = 'Pending').
         
         Returns:
             List of Session objects with payment_status = 'Pending'
         """
         rows = self.db.fetch_all(
             """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
-                      s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
-                      s.extra_charges, s.total_due, s.payment_status, s.notes
+                      s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
+                      s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
+                      s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
                JOIN systems sy ON s.system_id = sy.id
                WHERE s.payment_status = 'Pending'
@@ -292,23 +390,24 @@ class SessionService:
     
     def get_completed_sessions(self, start_date: str = None, end_date: str = None) -> List[Session]:
         """
-        Get completed sessions (with logout_time) within optional date range.
+        Get completed sessions (session_state = 'COMPLETED') within optional date range.
         
         Args:
             start_date: Optional start date (YYYY-MM-DD)
             end_date: Optional end date (YYYY-MM-DD)
         
         Returns:
-            List of Session objects with logout_time (completed sessions)
+            List of Session objects with session_state = 'COMPLETED'
         """
         if start_date and end_date:
             rows = self.db.fetch_all(
                 """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
-                          s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
-                          s.extra_charges, s.total_due, s.payment_status, s.notes
+                          s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
+                          s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
+                          s.paid_amount, s.payment_method, s.payment_status, s.notes
                    FROM sessions s
                    JOIN systems sy ON s.system_id = sy.id
-                   WHERE s.logout_time IS NOT NULL
+                   WHERE s.session_state = 'COMPLETED'
                    AND s.date >= ? AND s.date <= ?
                    ORDER BY s.date DESC, s.login_time DESC""",
                 (start_date, end_date)
@@ -316,11 +415,12 @@ class SessionService:
         elif start_date:
             rows = self.db.fetch_all(
                 """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
-                          s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
-                          s.extra_charges, s.total_due, s.payment_status, s.notes
+                          s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
+                          s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
+                          s.paid_amount, s.payment_method, s.payment_status, s.notes
                    FROM sessions s
                    JOIN systems sy ON s.system_id = sy.id
-                   WHERE s.logout_time IS NOT NULL
+                   WHERE s.session_state = 'COMPLETED'
                    AND s.date >= ?
                    ORDER BY s.date DESC, s.login_time DESC""",
                 (start_date,)
@@ -328,16 +428,64 @@ class SessionService:
         else:
             rows = self.db.fetch_all(
                 """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
-                          s.login_time, s.logout_time, s.duration_minutes, s.hourly_rate,
-                          s.extra_charges, s.total_due, s.payment_status, s.notes
+                          s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
+                          s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
+                          s.paid_amount, s.payment_method, s.payment_status, s.notes
                    FROM sessions s
                    JOIN systems sy ON s.system_id = sy.id
-                   WHERE s.logout_time IS NOT NULL
+                   WHERE s.session_state = 'COMPLETED'
                    ORDER BY s.date DESC, s.login_time DESC"""
             )
         return [self._row_to_session(row) for row in rows]
     
-    def get_daily_revenue(self, date: str) -> dict:
+    def get_planned_sessions(self) -> List[Session]:
+        """
+        Get all PLANNED sessions (not yet started).
+        
+        Returns:
+            List of Session objects with session_state = 'PLANNED'
+        """
+        rows = self.db.fetch_all(
+            """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+                      s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
+                      s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
+                      s.paid_amount, s.payment_method, s.payment_status, s.notes
+               FROM sessions s
+               JOIN systems sy ON s.system_id = sy.id
+               WHERE s.session_state = 'PLANNED'
+               ORDER BY s.date DESC, s.id DESC"""
+        )
+        return [self._row_to_session(row) for row in rows]
+    
+    def get_sessions_by_state(self, state: str) -> List[Session]:
+        """
+        Get all sessions in a specific state.
+        
+        Args:
+            state: 'PLANNED', 'ACTIVE', or 'COMPLETED'
+        
+        Returns:
+            List of Session objects in the specified state
+        
+        Raises:
+            ValueError: If state is invalid
+        """
+        valid_states = ("PLANNED", "ACTIVE", "COMPLETED")
+        if state not in valid_states:
+            raise ValueError(f"Invalid session state: {state}")
+        
+        rows = self.db.fetch_all(
+            """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+                      s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
+                      s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
+                      s.paid_amount, s.payment_method, s.payment_status, s.notes
+               FROM sessions s
+               JOIN systems sy ON s.system_id = sy.id
+               WHERE s.session_state = ?
+               ORDER BY s.date DESC, s.login_time DESC""",
+            (state,)
+        )
+        return [self._row_to_session(row) for row in rows]
         """
         Calculate daily revenue summary for a specific date.
         
@@ -460,10 +608,14 @@ class SessionService:
             system_name=row["system_name"],
             login_time=row["login_time"],
             logout_time=row["logout_time"],
-            duration_minutes=row["duration_minutes"],
+            session_state=row["session_state"],
+            planned_duration_min=row["planned_duration_min"],
+            actual_duration_min=row["actual_duration_min"],
             hourly_rate=row["hourly_rate"],
             extra_charges=row["extra_charges"],
             total_due=row["total_due"],
+            paid_amount=row["paid_amount"],
+            payment_method=row["payment_method"],
             payment_status=row["payment_status"],
             notes=row["notes"],
         )

@@ -3,6 +3,7 @@
 from pathlib import Path
 from app.db.connection import DatabaseConnection
 from app.db.path_manager import DatabasePathManager, DatabaseBackupManager
+from app.db.migration import migrate_database
 
 
 # Get database path from path manager (uses AppData directory)
@@ -59,6 +60,9 @@ def initialize_database(db_path: Path = None) -> DatabaseConnection:
             schema = f.read()
         
         db.execute_script(schema)
+        
+        # Run migration for prepaid-first model if needed
+        migrate_database(db_path)
         
         # Insert default systems if the table is empty
         _initialize_default_systems(db)
