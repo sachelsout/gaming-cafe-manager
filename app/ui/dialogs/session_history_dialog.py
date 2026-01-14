@@ -210,8 +210,10 @@ class SessionHistoryDialog:
             
             # Populate tree with sessions
             for session in sessions:
-                duration_str = f"{session.duration_minutes}m" if session.duration_minutes else "--"
-                payment_method = session.payment_status.replace("Paid-", "").replace("Pending", "Pending")
+                # In prepaid model, actual_duration_min contains the actual session duration
+                duration_str = f"{session.actual_duration_min}m" if session.actual_duration_min else "--"
+                # In prepaid model, payment_method field contains the payment method (Cash/Online/Mixed)
+                payment_method = session.payment_method if hasattr(session, 'payment_method') and session.payment_method else "Cash"
                 login_12hr = format_time_12hr(session.login_time) if session.login_time else "--"
                 logout_12hr = format_time_12hr(session.logout_time) if session.logout_time else "--"
                 

@@ -137,7 +137,7 @@ if systems:
         # Fetch updated session
         session = session_service.get_session_by_id(session_id)
         print(f"  Session ended")
-        print(f"  Duration: {session.duration_minutes} minutes = {format_duration(session.duration_minutes)}")
+        print(f"  Duration: {session.actual_duration_min} minutes = {format_duration(session.actual_duration_min)}")
         print(f"  Rate: {session.hourly_rate}/hour")
         print(f"  Extra charges: {session.extra_charges:.2f}")
         print(f"  Total due: {session.total_due:.2f}")
@@ -145,9 +145,9 @@ if systems:
         # Verify calculation
         expected_duration = 150  # 2.5 hours
         expected_total = (200.0 * 2.5) + 25.0  # 500 + 25 = 525
-        assert session.duration_minutes == expected_duration
+        assert session.actual_duration_min == expected_duration
         assert session.total_due == expected_total
-        print(f"  ✓ Correct total: {session.total_due:.2f}\n")
+        print(f"  [OK] Correct total: {session.total_due:.2f}\n")
         
         # Note: System availability is updated by the EndSessionDialog, not the service directly
         # The dialog handles marking the system as available after the session ends

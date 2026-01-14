@@ -55,11 +55,11 @@ system_service.set_system_availability(system.id, "In Use")
 print("✓ Test 1: Opening end session dialog...")
 try:
     def on_success():
-        print("\n✓ Test 2: Session ended successfully!")
+        print("\n[OK] Test 2: Session ended successfully!")
         # Get updated session
         session = session_service.get_session_by_id(session_id)
         print(f"  Logout time: {session.logout_time}")
-        print(f"  Duration: {session.duration_minutes} minutes")
+        print(f"  Duration: {session.actual_duration_min} minutes")
         print(f"  Total due: {session.total_due:.2f}")
         root.after(500, root.quit)
     
@@ -115,12 +115,12 @@ def _auto_submit_dialog(dialog):
 root.mainloop()
 
 # Verify final state
-print("\n✓ Test 3: Verifying final session state...")
+print("\n[OK] Test 3: Verifying final session state...")
 session = session_service.get_session_by_id(session_id)
 print(f"  Session {session_id}:")
 print(f"    Customer: {session.customer_name}")
 print(f"    Login: {session.login_time} → Logout: {session.logout_time}")
-print(f"    Duration: {session.duration_minutes} minutes")
+print(f"    Duration: {session.actual_duration_min} minutes")
 print(f"    Rate: {session.hourly_rate}/hour")
 print(f"    Extra charges: {session.extra_charges:.2f}")
 print(f"    Total due: {session.total_due:.2f}")
