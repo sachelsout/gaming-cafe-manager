@@ -70,6 +70,11 @@ class MainWindow:
         menubar.add_cascade(label="Reports", menu=reports_menu)
         reports_menu.add_command(label="Session History & Revenue", command=self._open_session_history)
         
+        # Settings menu
+        settings_menu = tk.Menu(menubar, bg=COLORS["bg_card"], fg=COLORS["text_primary"], tearoff=0)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        settings_menu.add_command(label="Manage Gaming Systems", command=self._open_manage_systems)
+        
         # Data menu (for backup/restore)
         data_menu = tk.Menu(menubar, bg=COLORS["bg_card"], fg=COLORS["text_primary"], tearoff=0)
         menubar.add_cascade(label="Data", menu=data_menu)
@@ -96,6 +101,15 @@ class MainWindow:
         """Open the session history and revenue summary dialog."""
         from app.ui.dialogs.session_history_dialog import SessionHistoryDialog
         SessionHistoryDialog(self.root, self.db)
+    
+    def _open_manage_systems(self):
+        """Open the manage gaming systems dialog."""
+        from app.ui.dialogs.manage_systems_dialog import ManageSystemsDialog
+        ManageSystemsDialog(
+            self.root,
+            self.db,
+            on_success=self.dashboard.refresh
+        )
     
     def _open_backup_manager(self):
         """Open the backup manager dialog."""

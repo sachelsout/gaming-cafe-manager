@@ -15,6 +15,7 @@ def migrate_database(db_path: Path) -> bool:
     3. Calculates paid_amount from total_due
     4. Sets payment_method based on old payment_status
     5. Keeps payment_status as-is (old values) to avoid CHECK constraint issues
+    6. Makes system_id nullable to preserve session history when systems are deleted
     
     Args:
         db_path: Path to the database file
@@ -35,6 +36,17 @@ def migrate_database(db_path: Path) -> bool:
         
         if 'session_state' in columns:
             print("[INFO] Database already migrated")
+            
+            # Check if we need to update the foreign key constraint
+            # This is done by checking if system_id is nullable
+            cursor.execute("PRAGMA table_info(sessions)")
+            columns = cursor.fetchall()
+            system_id_col = next((col for col in columns if col[1] == 'system_id'), None)
+            
+            if system_id_col and system_id_col[3] == 1:  # notnull flag is 1
+                print("[INFO] Updating foreign key constraint to allow NULL system_id...")
+                _update_foreign_key_constraint(conn, cursor)
+            
             conn.close()
             return False
         
@@ -180,3 +192,73 @@ def check_migration_status(db_path: Path) -> dict:
     
     finally:
         conn.close()
+
+def _update_foreign_key_constraint(conn: sqlite3.Connection, cursor: sqlite3.Cursor):
+    """
+    Update foreign key constraint to allow NULL system_id.
+    
+    This recreates the sessions table with the updated constraint.
+    SQLite doesn't support altering foreign key constraints directly,
+    so we need to recreate the table.
+    
+    Args:
+        conn: Database connection
+        cursor: Database cursor
+    """
+    try:
+        # Disable foreign keys temporarily
+        cursor.execute("PRAGMA foreign_keys = OFF")
+        
+        # Rename old table
+        cursor.execute("ALTER TABLE sessions RENAME TO sessions_old")
+        
+        # Create new table with updated schema
+        cursor.execute("""
+            CREATE TABLE sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date DATE NOT NULL,
+                customer_name TEXT NOT NULL,
+                system_id INTEGER,
+                session_state TEXT DEFAULT 'PLANNED' CHECK(session_state IN ('PLANNED', 'ACTIVE', 'COMPLETED')),
+                planned_duration_min INTEGER NOT NULL,
+                login_time TIME,
+                logout_time TIME,
+                actual_duration_min INTEGER,
+                hourly_rate REAL NOT NULL,
+                paid_amount REAL NOT NULL,
+                extra_charges REAL DEFAULT 0.0,
+                total_due REAL NOT NULL,
+                payment_method TEXT NOT NULL CHECK(payment_method IN ('Cash', 'Online', 'Mixed')),
+                payment_status TEXT DEFAULT 'PAID' CHECK(payment_status IN ('PAID', 'Pending', 'Refunded')),
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (system_id) REFERENCES systems(id) ON DELETE SET NULL
+            )
+        """)
+        
+        # Copy data from old table to new table
+        cursor.execute("""
+            INSERT INTO sessions 
+            SELECT * FROM sessions_old
+        """)
+        
+        # Drop old table
+        cursor.execute("DROP TABLE sessions_old")
+        
+        # Re-create indices
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_system ON sessions(system_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_payment ON sessions(payment_status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_customer ON sessions(customer_name)")
+        
+        # Re-enable foreign keys
+        cursor.execute("PRAGMA foreign_keys = ON")
+        
+        conn.commit()
+        print("[OK] Foreign key constraint updated to allow NULL system_id")
+    
+    except Exception as e:
+        conn.rollback()
+        print(f"[ERROR] Failed to update foreign key constraint: {e}")
+        raise

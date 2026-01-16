@@ -362,16 +362,16 @@ class SessionService:
             Session object or None if not found
         """
         row = self.db.fetch_one(
-            """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+            """SELECT s.id, s.date, s.customer_name, s.system_id, 
+                      COALESCE(sy.system_name, 'Deleted System') as system_name,
                       s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
                       s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
                       s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
-               JOIN systems sy ON s.system_id = sy.id
+               LEFT JOIN systems sy ON s.system_id = sy.id
                WHERE s.id = ?""",
             (session_id,)
         )
-        return self._row_to_session(row) if row else None
         return self._row_to_session(row) if row else None
     
     def get_active_sessions(self) -> List[Session]:
@@ -382,12 +382,13 @@ class SessionService:
             List of active Session objects
         """
         rows = self.db.fetch_all(
-            """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+            """SELECT s.id, s.date, s.customer_name, s.system_id, 
+                      COALESCE(sy.system_name, 'Deleted System') as system_name,
                       s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
                       s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
                       s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
-               JOIN systems sy ON s.system_id = sy.id
+               LEFT JOIN systems sy ON s.system_id = sy.id
                WHERE s.session_state = 'ACTIVE'
                ORDER BY s.login_time DESC"""
         )
@@ -404,12 +405,13 @@ class SessionService:
             List of Session objects
         """
         rows = self.db.fetch_all(
-            """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+            """SELECT s.id, s.date, s.customer_name, s.system_id, 
+                      COALESCE(sy.system_name, 'Deleted System') as system_name,
                       s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
                       s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
                       s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
-               JOIN systems sy ON s.system_id = sy.id
+               LEFT JOIN systems sy ON s.system_id = sy.id
                WHERE s.date = ?
                ORDER BY s.login_time DESC""",
             (date,)
@@ -424,12 +426,13 @@ class SessionService:
             List of Session objects with payment_status = 'Pending'
         """
         rows = self.db.fetch_all(
-            """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+            """SELECT s.id, s.date, s.customer_name, s.system_id, 
+                      COALESCE(sy.system_name, 'Deleted System') as system_name,
                       s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
                       s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
                       s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
-               JOIN systems sy ON s.system_id = sy.id
+               LEFT JOIN systems sy ON s.system_id = sy.id
                WHERE s.payment_status = 'Pending'
                ORDER BY s.date DESC, s.login_time DESC"""
         )
@@ -448,12 +451,13 @@ class SessionService:
         """
         if start_date and end_date:
             rows = self.db.fetch_all(
-                """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+                """SELECT s.id, s.date, s.customer_name, s.system_id, 
+                          COALESCE(sy.system_name, 'Deleted System') as system_name,
                           s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
                           s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
                           s.paid_amount, s.payment_method, s.payment_status, s.notes
                    FROM sessions s
-                   JOIN systems sy ON s.system_id = sy.id
+                   LEFT JOIN systems sy ON s.system_id = sy.id
                    WHERE s.session_state = 'COMPLETED'
                    AND s.date >= ? AND s.date <= ?
                    ORDER BY s.date DESC, s.login_time DESC""",
@@ -461,12 +465,13 @@ class SessionService:
             )
         elif start_date:
             rows = self.db.fetch_all(
-                """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+                """SELECT s.id, s.date, s.customer_name, s.system_id, 
+                          COALESCE(sy.system_name, 'Deleted System') as system_name,
                           s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
                           s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
                           s.paid_amount, s.payment_method, s.payment_status, s.notes
                    FROM sessions s
-                   JOIN systems sy ON s.system_id = sy.id
+                   LEFT JOIN systems sy ON s.system_id = sy.id
                    WHERE s.session_state = 'COMPLETED'
                    AND s.date >= ?
                    ORDER BY s.date DESC, s.login_time DESC""",
@@ -474,12 +479,13 @@ class SessionService:
             )
         else:
             rows = self.db.fetch_all(
-                """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+                """SELECT s.id, s.date, s.customer_name, s.system_id, 
+                          COALESCE(sy.system_name, 'Deleted System') as system_name,
                           s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
                           s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
                           s.paid_amount, s.payment_method, s.payment_status, s.notes
                    FROM sessions s
-                   JOIN systems sy ON s.system_id = sy.id
+                   LEFT JOIN systems sy ON s.system_id = sy.id
                    WHERE s.session_state = 'COMPLETED'
                    ORDER BY s.date DESC, s.login_time DESC"""
             )
@@ -493,12 +499,13 @@ class SessionService:
             List of Session objects with session_state = 'PLANNED'
         """
         rows = self.db.fetch_all(
-            """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+            """SELECT s.id, s.date, s.customer_name, s.system_id, 
+                      COALESCE(sy.system_name, 'Deleted System') as system_name,
                       s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
                       s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
                       s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
-               JOIN systems sy ON s.system_id = sy.id
+               LEFT JOIN systems sy ON s.system_id = sy.id
                WHERE s.session_state = 'PLANNED'
                ORDER BY s.date DESC, s.id DESC"""
         )
@@ -522,12 +529,13 @@ class SessionService:
             raise ValueError(f"Invalid session state: {state}")
         
         rows = self.db.fetch_all(
-            """SELECT s.id, s.date, s.customer_name, s.system_id, sy.system_name,
+            """SELECT s.id, s.date, s.customer_name, s.system_id, 
+                      COALESCE(sy.system_name, 'Deleted System') as system_name,
                       s.login_time, s.logout_time, s.session_state, s.planned_duration_min,
                       s.actual_duration_min, s.hourly_rate, s.extra_charges, s.total_due, 
                       s.paid_amount, s.payment_method, s.payment_status, s.notes
                FROM sessions s
-               JOIN systems sy ON s.system_id = sy.id
+               LEFT JOIN systems sy ON s.system_id = sy.id
                WHERE s.session_state = ?
                ORDER BY s.date DESC, s.login_time DESC""",
             (state,)

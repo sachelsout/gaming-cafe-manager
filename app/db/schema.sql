@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date DATE NOT NULL,
     customer_name TEXT NOT NULL,
-    system_id INTEGER NOT NULL,
+    system_id INTEGER,
     session_state TEXT DEFAULT 'PLANNED' CHECK(session_state IN ('PLANNED', 'ACTIVE', 'COMPLETED')),
     planned_duration_min INTEGER NOT NULL,
     login_time TIME,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (system_id) REFERENCES systems(id) ON DELETE RESTRICT
+    FOREIGN KEY (system_id) REFERENCES systems(id) ON DELETE SET NULL
 );
 
 -- Create indices for common queries
